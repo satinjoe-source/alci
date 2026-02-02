@@ -99,23 +99,46 @@ if page == "📊 Dashboard":
             <div class='kpi-card'><div class='kpi-label'>Mese</div><div class='kpi-value' style='color:blue'>{format_number(att_mese)}</div></div>
         </div>
     """, unsafe_allow_html=True)
-    
+
     st.subheader("Riepilogo Stazioni")
     try:
+        # 1. Scarichiamo le stazioni
         staz_df = pd.DataFrame(supabase.table("stazioni").select("stazione_id, ragione_sociale").execute().data)
-        cert_df = pd.DataFrame(supabase.table("certificati").select("stazione_id, stato").execute().data)
         
-        if not staz_df.empty and not cert_df.empty:
-            pivot = cert_df.groupby(['stazione_id', 'stato']).size().unstack(fill_value=0)
-            if 'GENERATO' not in pivot: pivot['GENERATO'] = 0
-            if 'ATTIVO' not in pivot: pivot['ATTIVO'] = 0
-            
-            merged = pd.merge(staz_df, pivot, on='stazione_id', how='left').fillna(0)
-            merged['Rimanenti'] = merged['GENERATO'].astype(int)
-            merged['Attivati'] = merged['ATTIVO'].astype(int)
-            st.dataframe(merged[["ragione_sociale", "Rimanenti", "Attivati"]], use_container_width=True)
+        # 2. Scarichiamo i certificati ALZANDO IL LIMITE (Default è 1000, mettiamo 50.000)
+        # Se non mettiamo .limit(50000), legge solo i primi 1000 e ignora le stazioni successive
+        cert_data = supabase.table("certificati").select("stazione_id, stato").limit(50000).execute().data
+        cert_df = pd.DataFrame(cert_data)
+        
+        if not staz_df.empty:
+            if not cert_df.empty:
+                # Raggruppamento e conteggio
+                pivot = cert_df.groupby(['stazione_id', 'stato']).size().unstack(fill_value=0)
+                
+                # Assicuriamoci che le colonne esistano anche se sono tutti a 0
+                if 'GENERATO' not in pivot: pivot['GENERATO'] = 0
+                if 'ATTIVO' not in pivot: pivot['ATTIVO'] = 0
+                
+                # Unione dei dati (Left Join per mantenere le stazioni anche se non hanno certificati letti)
+                merged = pd.merge(staz_df, pivot, on='stazione_id', how='left').fillna(0)
+                
+                merged['Rimanenti'] = merged['GENERATO'].astype(int)
+                merged['Attivati'] = merged['ATTIVO'].astype(int)
+                
+                # Visualizzazione tabella pulita
+                st.dataframe(
+                    merged[["ragione_sociale", "Rimanenti", "Attivati"]], 
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                # Caso: Ci sono stazioni ma ZERO certificati totali nel DB
+                staz_df['Rimanenti'] = 0
+                staz_df['Attivati'] = 0
+                st.dataframe(staz_df[["ragione_sociale", "Rimanenti", "Attivati"]], use_container_width=True)
+                
     except Exception as e:
-        st.error(f"Errore dati: {e}")
+        st.error(f"Errore nel calcolo riepilogo: {e}")
 
 # --- GESTIONE LOTTI ---
 elif page == "📦 Gestione Lotti":
