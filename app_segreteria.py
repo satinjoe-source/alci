@@ -4,8 +4,7 @@ from supabase import create_client, Client
 import qrcode
 import io
 import base64
-from datetime import datetime, timedelta
-import math
+from datetime import datetime
 
 BASE_URL = "https://appverificapy.streamlit.app"
 
@@ -17,7 +16,11 @@ def init_supabase():
     key = st.secrets["supabase"]["key"]
     return create_client(url, key)
 
-supabase: Client = init_supabase()
+try:
+    supabase: Client = init_supabase()
+except Exception as e:
+    st.error(f"Errore connessione Supabase: {e}")
+    st.stop()
 
 def make_qr_image(code: str) -> str:
     url = f"{BASE_URL}/?c={code}"
@@ -32,7 +35,7 @@ def make_qr_image(code: str) -> str:
 def format_number(n):
     return f"{n:,}".replace(",", ".")
 
-# --- CSS (Invariato) ---
+# --- CSS STYLES ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -68,28 +71,50 @@ if page == "📊 Dashboard":
     st.markdown("<div class='main-header'><h1>📊 Dashboard Centrale</h1><p>Panoramica sistema certificati A.L.C.I.</p></div>", unsafe_allow_html=True)
     
     with st.spinner("Caricamento dati Supabase..."):
-        # Fetching raw data for client-side aggregation (più semplice che PostgREST group_by)
-        cert_resp = supabase.table("certificati").select("stato, data_uso").execute()
-        df_cert = pd.DataFrame(cert_resp.data)
-        
-        tot = len(df_cert)
-        gen = len(df_cert[df_cert['stato'] == 'GENERATO'])
-        
-        # Filtro attivi
-        df_att = df_cert[df_cert['stato'] == 'ATTIVO'].copy()
-        
-        if not df_att.empty:
-            df_att['data_uso'] = pd.to_datetime(df_att['data_uso'])
-            oggi = pd.Timestamp.now(tz=df_att['data_uso'].dt.tz).normalize()
-            
-            att_oggi = len(df_att[df_att['data_uso'].dt.date == datetime.now().date()])
-            att_mese = len(df_att[df_att['data_uso'] >= today_replace(day=1)]) if not df_att.empty else 0
-            # Semplificazione per demo:
-            att_anno = len(df_att) # Assumiamo per ora tutto storico
-        else:
+        # Fetching raw data
+        try:
+            cert_resp = supabase.table("certificati").select("stato, data_uso").execute()
+            df_cert = pd.DataFrame(cert_resp.data)
+        except Exception as e:
+            st.error(f"Errore lettura dati: {e}")
+            df_cert = pd.DataFrame()
+
+        # FIX: Gestione caso DataFrame vuoto per evitare KeyError
+        if df_cert.empty:
+            tot = 0
+            gen = 0
             att_oggi = 0
             att_mese = 0
             att_anno = 0
+        else:
+            # Se ci sono dati, possiamo accedere alle colonne in sicurezza
+            tot = len(df_cert)
+            gen = len(df_cert[df_cert['stato'] == 'GENERATO'])
+            
+            # Filtro attivi
+            df_att = df_cert[df_cert['stato'] == 'ATTIVO'].copy()
+            
+            if not df_att.empty:
+                # Convertiamo in datetime gestendo il fuso orario
+                df_att['data_uso'] = pd.to_datetime(df_att['data_uso'])
+                
+                # Otteniamo la data di oggi "timezone-aware" se necessario, o naive
+                if df_att['data_uso'].dt.tz is not None:
+                    now = pd.Timestamp.now(tz=df_att['data_uso'].dt.tz)
+                else:
+                    now = pd.Timestamp.now()
+                
+                oggi = now.normalize()
+                inizio_mese = today = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                inizio_anno = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                
+                att_oggi = len(df_att[df_att['data_uso'].dt.date == now.date()])
+                att_mese = len(df_att[df_att['data_uso'] >= inizio_mese])
+                att_anno = len(df_att[df_att['data_uso'] >= inizio_anno])
+            else:
+                att_oggi = 0
+                att_mese = 0
+                att_anno = 0
 
     st.markdown(f"""
         <div class='kpi-grid'>
@@ -101,7 +126,7 @@ if page == "📊 Dashboard":
     
     st.markdown("<div class='section-title'>📋 Certificati Rimanenti per Stazione</div>", unsafe_allow_html=True)
     
-    # Per questa vista, scarichiamo i dati necessari e uniamo con Pandas
+    # Anche qui, gestione caso vuoto
     staz_resp = supabase.table("stazioni").select("stazione_id, ragione_sociale").execute()
     df_staz = pd.DataFrame(staz_resp.data)
     
@@ -122,82 +147,110 @@ if page == "📊 Dashboard":
         final['Rimanenti'] = final['GENERATO'].astype(int)
         final['Attivati'] = final['ATTIVO'].astype(int)
         final['Totale'] = final['Totale'].astype(int)
-        final['% Utilizzo'] = (final['Attivati'] / final['Totale'] * 100).round(1)
+        
+        # Calcolo % sicuro (evita divisione per zero)
+        final['% Utilizzo'] = final.apply(lambda x: (x['Attivati'] / x['Totale'] * 100) if x['Totale'] > 0 else 0, axis=1).round(1)
         
         st.dataframe(
             final[["ragione_sociale", "Totale", "Rimanenti", "Attivati", "% Utilizzo"]].sort_values("Rimanenti", ascending=False),
             use_container_width=True, hide_index=True
         )
+    elif not df_staz.empty:
+        st.info("Nessun certificato ancora generato.")
+    else:
+        st.warning("Nessuna stazione configurata.")
 
 elif page == "📦 Gestione Lotti":
     st.markdown("<div class='main-header'><h1>📦 Gestione Lotti</h1><p>Assegnazione range certificati</p></div>", unsafe_allow_html=True)
     
-    stazioni_df = pd.DataFrame(supabase.table("stazioni").select("stazione_id, ragione_sociale").eq("attiva", True).execute().data)
+    resp = supabase.table("stazioni").select("stazione_id, ragione_sociale").eq("attiva", True).execute()
+    stazioni_df = pd.DataFrame(resp.data)
     
-    with st.form("nuovo_lotto"):
-        col1, col2 = st.columns(2)
-        with col1:
-            staz_sel = st.selectbox("Stazione", stazioni_df["stazione_id"].tolist(), format_func=lambda x: stazioni_df[stazioni_df["stazione_id"]==x]["ragione_sociale"].values[0])
-        with col2:
-            prefix = st.text_input("Prefisso", value="ALCI")
-        
-        # Get last code
-        last_resp = supabase.table("certificati").select("code").order("code", desc=True).limit(1).execute()
-        ultimo_num = 0
-        if last_resp.data:
+    if stazioni_df.empty:
+        st.warning("⚠️ Nessuna stazione attiva trovata. Crea prima una stazione nel database.")
+    else:
+        with st.form("nuovo_lotto"):
+            col1, col2 = st.columns(2)
+            with col1:
+                staz_sel = st.selectbox("Stazione", stazioni_df["stazione_id"].tolist(), format_func=lambda x: stazioni_df[stazioni_df["stazione_id"]==x]["ragione_sociale"].values[0])
+            with col2:
+                prefix = st.text_input("Prefisso", value="ALCI")
+            
+            # Get last code
             try:
-                ultimo_num = int(last_resp.data[0]['code'].split("-")[-1])
-            except: pass
-            
-        st.info(f"Ultimo numero: {ultimo_num}")
-        
-        col3, col4 = st.columns(2)
-        with col3:
-            num_inizio = st.number_input("Inizio", min_value=ultimo_num+1, value=ultimo_num+1)
-        with col4:
-            num_fine = st.number_input("Fine", min_value=num_inizio, value=num_inizio+999)
-            
-        if st.form_submit_button("🚀 Genera"):
-            quantita = num_fine - num_inizio + 1
-            if quantita > 5000:
-                st.error("Max 5000 per lotto (limitazione API)")
-            else:
-                lotto_id = f"LOT-{staz_sel}-{datetime.now().strftime('%y%m%d%H%M')}"
-                data_list = []
-                for i in range(num_inizio, num_fine + 1):
-                    data_list.append({
-                        "code": f"{prefix}-{str(i).zfill(7)}",
-                        "lotto": lotto_id,
-                        "stazione_id": staz_sel,
-                        "stato": "GENERATO"
-                    })
+                last_resp = supabase.table("certificati").select("code").order("code", desc=True).limit(1).execute()
+                ultimo_num = 0
+                if last_resp.data:
+                    parts = last_resp.data[0]['code'].split("-")
+                    if len(parts) > 1 and parts[-1].isdigit():
+                        ultimo_num = int(parts[-1])
+            except:
+                ultimo_num = 0
                 
-                # Batch insert (Supabase gestisce bene batch fino a qualche migliaio, ma chunkiamo per sicurezza)
-                chunk_size = 1000
-                progress = st.progress(0)
-                try:
-                    for i in range(0, len(data_list), chunk_size):
-                        chunk = data_list[i:i + chunk_size]
-                        supabase.table("certificati").insert(chunk).execute()
-                        progress.progress(min((i + chunk_size) / len(data_list), 1.0))
+            st.info(f"Ultimo numero rilevato: {ultimo_num}")
+            
+            col3, col4 = st.columns(2)
+            with col3:
+                num_inizio = st.number_input("Inizio", min_value=ultimo_num+1, value=ultimo_num+1)
+            with col4:
+                num_fine = st.number_input("Fine", min_value=num_inizio, value=num_inizio+999)
+                
+            if st.form_submit_button("🚀 Genera"):
+                quantita = num_fine - num_inizio + 1
+                if quantita > 5000:
+                    st.error("Max 5000 per lotto (limitazione API)")
+                else:
+                    lotto_id = f"LOT-{staz_sel}-{datetime.now().strftime('%y%m%d%H%M')}"
+                    data_list = []
+                    for i in range(num_inizio, num_fine + 1):
+                        data_list.append({
+                            "code": f"{prefix}-{str(i).zfill(7)}",
+                            "lotto": lotto_id,
+                            "stazione_id": staz_sel,
+                            "stato": "GENERATO"
+                        })
                     
-                    st.success(f"✅ Generati {quantita} certificati!")
-                except Exception as e:
-                    st.error(f"Errore: {e}")
+                    chunk_size = 1000
+                    progress = st.progress(0)
+                    try:
+                        for i in range(0, len(data_list), chunk_size):
+                            chunk = data_list[i:i + chunk_size]
+                            supabase.table("certificati").insert(chunk).execute()
+                            progress.progress(min((i + chunk_size) / len(data_list), 1.0))
+                        
+                        st.success(f"✅ Generati {quantita} certificati!")
+                        st.cache_data.clear() # Pulisce cache se usata
+                    except Exception as e:
+                        st.error(f"Errore: {e}")
 
-    # Visualizzazione Lotti (Semplificata)
+    # Visualizzazione Lotti
     if st.button("Aggiorna Lista Lotti"):
-        # Pandas approach per semplicità
-        all_certs = pd.DataFrame(supabase.table("certificati").select("lotto, code, stato").execute().data)
-        if not all_certs.empty:
-            stats = all_certs.groupby('lotto').agg({
-                'code': ['min', 'max', 'count'],
-                'stato': lambda x: (x == 'ATTIVO').sum()
-            }).reset_index()
-            stats.columns = ['Lotto', 'Primo', 'Ultimo', 'Totale', 'Attivati']
-            st.dataframe(stats, use_container_width=True)
+        try:
+            resp = supabase.table("certificati").select("lotto, code, stato").execute()
+            all_certs = pd.DataFrame(resp.data)
+            
+            if not all_certs.empty:
+                stats = all_certs.groupby('lotto').agg({
+                    'code': ['min', 'max', 'count'],
+                    'stato': lambda x: (x == 'ATTIVO').sum()
+                }).reset_index()
+                
+                # Appiattimento MultiIndex
+                stats.columns = ['Lotto', 'Primo', 'Ultimo', 'Totale', 'Attivati']
+                st.dataframe(stats, use_container_width=True)
+            else:
+                st.info("Nessun lotto presente.")
+        except Exception as e:
+            st.error(f"Errore lettura lista: {e}")
 
 elif page == "🏭 Stazioni":
     st.title("Lista Stazioni")
-    df = pd.DataFrame(supabase.table("stazioni").select("*").execute().data)
-    st.dataframe(df, use_container_width=True)
+    try:
+        resp = supabase.table("stazioni").select("*").execute()
+        df = pd.DataFrame(resp.data)
+        if not df.empty:
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.info("Nessuna stazione inserita.")
+    except Exception as e:
+        st.error(f"Errore caricamento stazioni: {e}")
