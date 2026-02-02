@@ -19,106 +19,87 @@ st.markdown("""
     .stApp { 
         background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%); 
     }
+    .logo-container {
+        text-align: center;
+        margin: 40px 0 20px 0;
+    }
+    .logo-title {
+        color: #2563eb; 
+        font-size: 56px;
+        font-weight: 900;
+        letter-spacing: 6px;
+        margin-bottom: 8px;
+    }
+    .subtitle {
+        color: #64748b; 
+        font-size: 18px;
+        margin-bottom: 0;
+    }
     .verify-card {
         background: white; 
         padding: 40px; 
         border-radius: 20px;
         box-shadow: 0 8px 32px rgba(0,0,0,0.12); 
         max-width: 700px; 
-        margin: 60px auto;
-    }
-    .logo-title {
-        text-align: center; 
-        color: #2563eb; 
-        font-size: 48px;
-        font-weight: 900;
-        margin-bottom: 8px;
-        letter-spacing: 4px;
-    }
-    .subtitle {
-        text-align: center; 
-        color: #64748b; 
-        font-size: 16px;
-        margin-bottom: 40px;
-    }
-    .result-box {
-        background: #f0fdf4; 
-        border: 2px solid #86efac; 
-        border-radius: 12px;
-        padding: 28px; 
-        margin: 24px 0;
+        margin: 30px auto;
     }
     .result-title {
         color: #16a34a; 
-        font-size: 26px;
+        font-size: 28px;
         font-weight: 700;
-        margin: 0 0 24px 0;
+        margin: 0 0 30px 0;
         text-align: center;
     }
     .info-item {
-        margin: 16px 0;
-        padding: 12px 0;
-        border-bottom: 1px solid #d1fae5;
+        margin: 20px 0;
+        padding-bottom: 20px;
+        border-bottom: 1px solid #e5e7eb;
     }
     .info-item:last-child {
         border-bottom: none;
+        padding-bottom: 0;
     }
     .info-label {
-        color: #14532d; 
+        color: #6b7280; 
         font-weight: 600;
-        font-size: 14px;
-        display: block;
-        margin-bottom: 6px;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 8px;
     }
     .info-value {
-        background: white; 
-        padding: 10px 14px; 
-        border-radius: 6px;
-        font-size: 16px;
         color: #1e293b;
-        display: block;
-    }
-    .error-box {
-        background: #fef2f2; 
-        border: 2px solid #fecaca; 
-        border-radius: 12px;
-        padding: 28px; 
-        margin: 24px 0;
+        font-size: 18px;
+        font-weight: 500;
     }
     .error-title {
         color: #dc2626; 
-        font-size: 26px;
+        font-size: 28px;
         font-weight: 700;
-        margin: 0 0 16px 0;
+        margin: 0 0 20px 0;
         text-align: center;
     }
     .error-text {
         color: #7f1d1d; 
-        margin: 0;
         line-height: 1.8;
         text-align: center;
-    }
-    .warning-box {
-        background: #fffbeb; 
-        border: 2px solid #fde68a; 
-        border-radius: 12px;
-        padding: 28px; 
-        margin: 24px 0;
+        font-size: 16px;
     }
     .warning-title {
         color: #d97706; 
-        font-size: 26px;
+        font-size: 28px;
         font-weight: 700;
-        margin: 0 0 16px 0;
+        margin: 0 0 20px 0;
         text-align: center;
     }
     .warning-text {
         color: #78350f;
         line-height: 1.8;
         text-align: center;
+        font-size: 16px;
     }
     .alert-old {
-        background: #fee; 
+        background: #fef2f2; 
         border-left: 4px solid #dc2626; 
         padding: 16px; 
         border-radius: 8px; 
@@ -138,12 +119,19 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Logo fuori dal riquadro
+st.markdown("""
+    <div class='logo-container'>
+        <div class='logo-title'>🔍 A.L.C.I.</div>
+        <div class='subtitle'>Verifica Certificato Lavaggio Cisterna</div>
+    </div>
+""", unsafe_allow_html=True)
+
 params = st.query_params
 code_param = params.get("c", "")
 
-# Spinner durante la verifica
 if code_param:
-    with st.spinner("🔍 Verifica certificato in corso..."):
+    with st.spinner("🔍 Verifica in corso..."):
         time.sleep(0.8)
         
         try:
@@ -153,16 +141,11 @@ if code_param:
                 # CERTIFICATO NON TROVATO
                 st.markdown(f"""
                     <div class='verify-card'>
-                        <div class='logo-title'>🔍 A.L.C.I.</div>
-                        <div class='subtitle'>Verifica Certificato Lavaggio Cisterna</div>
-                        
-                        <div class='error-box'>
-                            <div class='error-title'>❌ CERTIFICATO NON VALIDO</div>
-                            <div class='error-text'>
-                                <strong>Codice:</strong> {code_param}<br><br>
-                                Il numero di serie non esiste nel database A.L.C.I.<br>
-                                Possibile contraffazione.
-                            </div>
+                        <div class='error-title'>❌ CERTIFICATO NON VALIDO</div>
+                        <div class='error-text'>
+                            <strong>Codice:</strong> {code_param}<br><br>
+                            Il numero di serie non esiste nel database A.L.C.I.<br>
+                            Possibile contraffazione.
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
@@ -176,17 +159,12 @@ if code_param:
                 
                 st.markdown(f"""
                     <div class='verify-card'>
-                        <div class='logo-title'>🔍 A.L.C.I.</div>
-                        <div class='subtitle'>Verifica Certificato Lavaggio Cisterna</div>
-                        
-                        <div class='warning-box'>
-                            <div class='warning-title'>⚠️ CERTIFICATO NON ATTIVATO</div>
-                            <div class='warning-text'>
-                                <strong>Codice:</strong> {cert['code']}<br>
-                                <strong>Stazione:</strong> {stazione_info}<br>
-                                <strong>Lotto:</strong> {cert['lotto']}<br><br>
-                                Questo certificato non è ancora stato attivato dalla stazione di lavaggio.
-                            </div>
+                        <div class='warning-title'>⚠️ CERTIFICATO NON ATTIVATO</div>
+                        <div class='warning-text'>
+                            <strong>Codice:</strong> {cert['code']}<br>
+                            <strong>Stazione:</strong> {stazione_info}<br>
+                            <strong>Lotto:</strong> {cert['lotto']}<br><br>
+                            Questo certificato non è ancora stato attivato dalla stazione di lavaggio.
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
@@ -212,61 +190,44 @@ if code_param:
                 
                 st.markdown(f"""
                     <div class='verify-card'>
-                        <div class='logo-title'>🔍 A.L.C.I.</div>
-                        <div class='subtitle'>Verifica Certificato Lavaggio Cisterna</div>
+                        <div class='result-title'>✅ CERTIFICATO VALIDO E ATTIVO</div>
                         
-                        <div class='result-box'>
-                            <div class='result-title'>✅ CERTIFICATO VALIDO E ATTIVO</div>
-                            
-                            <div class='info-item'>
-                                <div class='info-label'>Codice Certificato</div>
-                                <div class='info-value'>{cert['code']}</div>
-                            </div>
-                            
-                            <div class='info-item'>
-                                <div class='info-label'>Stazione di Lavaggio</div>
-                                <div class='info-value'>{stazione_info}</div>
-                            </div>
-                            
-                            <div class='info-item'>
-                                <div class='info-label'>Data e Ora Attivazione</div>
-                                <div class='info-value' style='font-weight:600; font-size:18px;'>{data_att_str}</div>
-                            </div>
-                            
-                            <div class='info-item'>
-                                <div class='info-label'>Targa Veicolo</div>
-                                <div class='info-value'>{targa_info}</div>
-                            </div>
-                            
-                            <div class='info-item'>
-                                <div class='info-label'>Lotto</div>
-                                <div class='info-value'>{cert['lotto']}</div>
-                            </div>
-                            
-                            {alert_html}
+                        <div class='info-item'>
+                            <div class='info-label'>Codice Certificato</div>
+                            <div class='info-value'>{cert['code']}</div>
                         </div>
+                        
+                        <div class='info-item'>
+                            <div class='info-label'>Stazione di Lavaggio</div>
+                            <div class='info-value'>{stazione_info}</div>
+                        </div>
+                        
+                        <div class='info-item'>
+                            <div class='info-label'>Data e Ora Attivazione</div>
+                            <div class='info-value' style='font-weight:600;'>{data_att_str}</div>
+                        </div>
+                        
+                        <div class='info-item'>
+                            <div class='info-label'>Targa Veicolo</div>
+                            <div class='info-value'>{targa_info}</div>
+                        </div>
+                        
+                        <div class='info-item'>
+                            <div class='info-label'>Lotto</div>
+                            <div class='info-value'>{cert['lotto']}</div>
+                        </div>
+                        
+                        {alert_html}
                     </div>
                 """, unsafe_allow_html=True)
 
         except Exception as e:
             st.markdown(f"""
                 <div class='verify-card'>
-                    <div class='logo-title'>🔍 A.L.C.I.</div>
-                    <div class='subtitle'>Verifica Certificato Lavaggio Cisterna</div>
-                    
-                    <div class='error-box'>
-                        <div class='error-title'>❌ ERRORE</div>
-                        <div class='error-text'>Si è verificato un errore durante la verifica:<br>{str(e)}</div>
-                    </div>
+                    <div class='error-title'>❌ ERRORE</div>
+                    <div class='error-text'>Si è verificato un errore durante la verifica:<br>{str(e)}</div>
                 </div>
             """, unsafe_allow_html=True)
 
 else:
-    # NESSUN CODICE FORNITO
-    st.markdown("""
-        <div class='verify-card'>
-            <div class='logo-title'>🔍 A.L.C.I.</div>
-            <div class='subtitle'>Verifica Certificato Lavaggio Cisterna</div>
-        </div>
-    """, unsafe_allow_html=True)
     st.info("📱 Scansiona il QR code sul certificato per verificarne l'autenticità")
