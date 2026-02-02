@@ -3,6 +3,7 @@ import pandas as pd
 from supabase import create_client, Client
 from datetime import datetime
 from PIL import Image
+import time  # <--- AGGIUNTO QUESTO IMPORT MANCANTE
 
 try:
     from pyzbar import pyzbar
@@ -12,18 +13,26 @@ except ImportError:
 
 st.set_page_config(page_title="A.L.C.I. Stazione", page_icon="🏭", layout="centered")
 
+# --- CONNESSIONE SUPABASE ---
 @st.cache_resource
 def init_supabase():
-    url = st.secrets["supabase"]["url"]
-    key = st.secrets["supabase"]["key"]
-    return create_client(url, key)
+    try:
+        url = st.secrets["supabase"]["url"]
+        key = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception as e:
+        return None
 
-supabase: Client = init_supabase()
+supabase = init_supabase()
+
+if not supabase:
+    st.error("❌ Errore di connessione a Supabase. Controlla i secrets.")
+    st.stop()
 
 def format_number(n):
     return f"{n:,}".replace(",", ".")
 
-# --- CSS STYLES (Invariato) ---
+# --- CSS STYLES ---
 st.markdown("""
 <style>
     .stApp { background-color: #f5f7fa; }
@@ -58,11 +67,14 @@ if not st.session_state.stazione_logged:
     """, unsafe_allow_html=True)
     
     # Fetch stazioni da Supabase
-    stazioni_resp = supabase.table("stazioni").select("stazione_id, ragione_sociale, password").eq("attiva", True).execute()
-    stazioni = pd.DataFrame(stazioni_resp.data)
+    try:
+        stazioni_resp = supabase.table("stazioni").select("stazione_id, ragione_sociale, password").eq("attiva", True).execute()
+        stazioni = pd.DataFrame(stazioni_resp.data)
+    except:
+        stazioni = pd.DataFrame()
     
     if stazioni.empty:
-        st.error("❌ Nessuna stazione disponibile")
+        st.error("❌ Nessuna stazione disponibile. Contattare segreteria.")
         st.stop()
     
     st.markdown("<div class='action-box'>", unsafe_allow_html=True)
@@ -74,11 +86,8 @@ if not st.session_state.stazione_logged:
     pwd = st.text_input("Password", type="password")
     
     if st.button("🔓 Accedi", type="primary"):
-        # Controlliamo se c'è una password nel DB, altrimenti usiamo quella di default hardcoded
         selected_staz = stazioni[stazioni["stazione_id"]==sel].iloc[0]
         db_pwd = selected_staz.get("password")
-        
-        # Logica: se db_pwd è null usa "lavaggio123", altrimenti usa quella del DB
         valid_pwd = db_pwd if db_pwd else "lavaggio123"
         
         if pwd == valid_pwd:
@@ -92,6 +101,11 @@ if not st.session_state.stazione_logged:
 
 # --- MAIN APP ---
 staz_resp = supabase.table("stazioni").select("*").eq("stazione_id", st.session_state.stazione_logged).execute()
+if not staz_resp.data:
+    st.error("Stazione non trovata")
+    st.session_state.stazione_logged = None
+    st.rerun()
+
 staz = staz_resp.data[0]
 
 st.markdown("<div class='main-container'>", unsafe_allow_html=True)
@@ -110,14 +124,13 @@ with col2:
         st.session_state.stazione_logged = None
         st.rerun()
 
-# --- STATISTICHE (Count) ---
-tot_resp = supabase.table("certificati").select("*", count="exact", head=True).eq("stazione_id", staz['stazione_id']).execute()
-tot = tot_resp.count
-
-att_resp = supabase.table("certificati").select("*", count="exact", head=True).eq("stazione_id", staz['stazione_id']).eq("stato", "ATTIVO").execute()
-att = att_resp.count
-
-disponibili = tot - att
+# --- STATISTICHE ---
+try:
+    tot = supabase.table("certificati").select("*", count="exact", head=True).eq("stazione_id", staz['stazione_id']).execute().count
+    att = supabase.table("certificati").select("*", count="exact", head=True).eq("stazione_id", staz['stazione_id']).eq("stato", "ATTIVO").execute().count
+    disponibili = tot - att
+except:
+    tot, att, disponibili = 0, 0, 0
 
 st.markdown(f"""
     <div class='stats-grid'>
@@ -140,7 +153,6 @@ st.markdown("<div class='action-box'>", unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(["📸 Scansiona QR", "🔢 Inserisci Codice", "📋 Storico"])
 
-# Funzione helper per check e attivazione
 def verifica_e_mostra_cert(code):
     resp = supabase.table("certificati").select("*").eq("code", code).execute()
     if not resp.data:
@@ -154,7 +166,7 @@ def verifica_e_mostra_cert(code):
         return None
         
     if cert["stato"] == "ATTIVO":
-        data_att = datetime.fromisoformat(cert["data_uso"].replace('Z','')).strftime("%d/%m/%Y %H:%M")
+        data_att = cert["data_uso"]
         st.markdown(f"<div class='warning-alert'><h3>⚠️ Già attivato</h3><p>Data: {data_att}<br>Targa: {cert['targa']}</p></div>", unsafe_allow_html=True)
         return None
         
@@ -176,7 +188,7 @@ def attiva_certificato(code, targa, note):
 with tab1:
     st.markdown("### Scansiona il QR Code")
     if not PYZBAR_AVAILABLE:
-        st.error("❌ Libreria pyzbar non installata")
+        st.error("❌ Libreria pyzbar non installata. Usa inserimento manuale.")
     else:
         uploaded_file = st.file_uploader("📸 Carica foto QR", type=["jpg","png"], key="qr_up")
         if uploaded_file:
@@ -225,23 +237,24 @@ with tab2:
 
 with tab3:
     st.markdown("### Ultimi 50 attivati")
-    # Fetch ultimi records
-    resp = supabase.table("certificati")\
-        .select("code, targa, data_uso, note")\
-        .eq("stazione_id", staz['stazione_id'])\
-        .eq("stato", "ATTIVO")\
-        .order("data_uso", desc=True)\
-        .limit(50)\
-        .execute()
+    try:
+        resp = supabase.table("certificati")\
+            .select("code, targa, data_uso, note")\
+            .eq("stazione_id", staz['stazione_id'])\
+            .eq("stato", "ATTIVO")\
+            .order("data_uso", desc=True)\
+            .limit(50)\
+            .execute()
         
-    df = pd.DataFrame(resp.data)
-    if not df.empty:
-        # Formattazione data e nomi colonne
-        df['data_uso'] = pd.to_datetime(df['data_uso']).dt.strftime('%d/%m/%Y %H:%M')
-        df.columns = ["Codice", "Targa", "Note", "Data"] # Ordine dipende da select, attenzione
-        df = df[["Codice", "Targa", "Data", "Note"]] # Riordino
-        st.dataframe(df, use_container_width=True, hide_index=True)
-    else:
-        st.info("Nessuno storico disponibile")
+        df = pd.DataFrame(resp.data)
+        if not df.empty:
+            df['data_uso'] = pd.to_datetime(df['data_uso']).dt.strftime('%d/%m/%Y %H:%M')
+            df.columns = ["Codice", "Targa", "Note", "Data"]
+            df = df[["Codice", "Targa", "Data", "Note"]]
+            st.dataframe(df, use_container_width=True, hide_index=True)
+        else:
+            st.info("Nessuno storico disponibile")
+    except:
+        st.info("Errore caricamento storico")
 
 st.markdown("</div></div>", unsafe_allow_html=True)
