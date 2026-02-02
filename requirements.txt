@@ -3,3 +3,4 @@ pandas
 qrcode[pil]
 pillow
 pyzbar
+libsql-experimental
