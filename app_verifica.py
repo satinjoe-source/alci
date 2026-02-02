@@ -1,20 +1,21 @@
-# app_verifica.py
 import streamlit as st
 import sqlite3
 from datetime import datetime
 import time
 
-# Configurazione pagina
+# --- CONFIGURAZIONE ---
 st.set_page_config(page_title="A.L.C.I. Verifica", page_icon="🔍", layout="centered")
 
+# --- DATABASE ---
 @st.cache_resource
 def get_db():
-    # Assicurati che il file alci.db esista nella stessa cartella
+    # Il file alci.db deve essere nella root del repository
     conn = sqlite3.connect("alci.db", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
-# Blocco CSS
+# --- CSS STYLES ---
+# Nota: Questo blocco definisce l'aspetto grafico (card, ombre, colori)
 st.markdown("""
 <style>
     .stApp { 
@@ -120,7 +121,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Intestazione Logo
+# --- HEADER LOGO ---
 st.markdown("""
 <div class='logo-container'>
     <div class='logo-title'>🔍 A.L.C.I.</div>
@@ -128,34 +129,31 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# --- LOGICA APPLICAZIONE ---
+
+# Connessione DB con gestione errore
 try:
     db = get_db()
 except Exception as e:
-    st.error(f"Errore connessione database: {e}")
+    st.error(f"Errore: Impossibile trovare il database alci.db. Assicurati di averlo caricato su GitHub. Dettagli: {e}")
     st.stop()
 
-# Recupero parametri URL
-# Nota: st.query_params funziona nelle versioni recenti di Streamlit. 
-# Se usi una versione molto vecchia usa st.experimental_get_query_params()
-try:
-    params = st.query_params
-    # Gestione compatibilità: a volte ritorna una lista, a volte una stringa
-    code_param = params.get("c", "")
-    if isinstance(code_param, list):
-        code_param = code_param[0]
-except:
-    code_param = ""
+# Recupero parametro 'c' dall'URL
+query_params = st.query_params
+code_param = query_params.get("c", "")
 
 if code_param:
+    # Mostra spinner durante la ricerca
     with st.spinner("🔍 Verifica in corso..."):
-        time.sleep(0.5) # Piccolo delay per UX
+        time.sleep(0.5) 
         
         try:
+            # Cerca certificato
             cert = db.execute("SELECT * FROM certificati WHERE code=?", (code_param,)).fetchone()
             
+            # --- CASO 1: NON TROVATO ---
             if not cert:
-                # --- CERTIFICATO NON TROVATO ---
-                st.markdown(f"""
+                html_error = f"""
 <div class='verify-card'>
     <div class='error-title'>❌ CERTIFICATO NON VALIDO</div>
     <div class='error-text'>
@@ -164,16 +162,17 @@ if code_param:
         Possibile contraffazione.
     </div>
 </div>
-""", unsafe_allow_html=True)
+"""
+                st.markdown(html_error, unsafe_allow_html=True)
                 st.stop()
             
-            # Recupero dati stazione
+            # Recupera dati stazione
             staz = db.execute("SELECT ragione_sociale, citta FROM stazioni WHERE stazione_id=?", (cert['stazione_id'],)).fetchone()
             stazione_info = f"{staz['ragione_sociale']} ({staz['citta']})" if staz else cert['stazione_id']
 
+            # --- CASO 2: GENERATO MA NON ATTIVO ---
             if cert["stato"] == "GENERATO":
-                # --- CERTIFICATO NON ATTIVATO ---
-                st.markdown(f"""
+                html_warning = f"""
 <div class='verify-card'>
     <div class='warning-title'>⚠️ CERTIFICATO NON ATTIVATO</div>
     <div class='warning-text'>
@@ -183,68 +182,65 @@ if code_param:
         Questo certificato non è ancora stato attivato dalla stazione di lavaggio.
     </div>
 </div>
-""", unsafe_allow_html=True)
+"""
+                st.markdown(html_warning, unsafe_allow_html=True)
             
+            # --- CASO 3: ATTIVO E VALIDO ---
             elif cert["stato"] == "ATTIVO":
-                # --- CERTIFICATO ATTIVO ---
                 data_att = datetime.fromisoformat(cert["data_uso"])
                 data_att_str = data_att.strftime("%d/%m/%Y alle ore %H:%M")
                 giorni_fa = (datetime.now() - data_att).days
                 
                 targa_info = cert['targa'] if cert['targa'] else 'Non specificata'
                 
-                # Alert se vecchio
+                # Prepara alert HTML se il lavaggio è vecchio > 7 giorni
                 alert_html = ""
                 if giorni_fa > 7:
                     alert_html = f"""
-                    <div class='alert-old'>
-                        <div class='alert-old-title'>⚠️ ATTENZIONE: Certificato attivato {giorni_fa} giorni fa</div>
-                        <div class='alert-old-text'>Verificare che il lavaggio sia recente. Possibile riutilizzo improprio.</div>
-                    </div>
-                    """
+<div class='alert-old'>
+    <div class='alert-old-title'>⚠️ ATTENZIONE: Certificato attivato {giorni_fa} giorni fa</div>
+    <div class='alert-old-text'>Verificare che il lavaggio sia recente. Possibile riutilizzo improprio.</div>
+</div>
+"""
                 
-                st.markdown(f"""
+                # Costruzione HTML Finale (SENZA INDENTAZIONE)
+                html_success = f"""
 <div class='verify-card'>
     <div class='result-title'>✅ CERTIFICATO VALIDO E ATTIVO</div>
-    
     <div class='info-item'>
         <div class='info-label'>Codice Certificato</div>
         <div class='info-value'>{cert['code']}</div>
     </div>
-    
     <div class='info-item'>
         <div class='info-label'>Stazione di Lavaggio</div>
         <div class='info-value'>{stazione_info}</div>
     </div>
-    
     <div class='info-item'>
         <div class='info-label'>Data e Ora Attivazione</div>
         <div class='info-value' style='font-weight:600;'>{data_att_str}</div>
     </div>
-    
     <div class='info-item'>
         <div class='info-label'>Targa Veicolo</div>
         <div class='info-value'>{targa_info}</div>
     </div>
-    
     <div class='info-item'>
         <div class='info-label'>Lotto</div>
         <div class='info-value'>{cert['lotto']}</div>
     </div>
-    
     {alert_html}
 </div>
-""", unsafe_allow_html=True)
+"""
+                st.markdown(html_success, unsafe_allow_html=True)
 
         except Exception as e:
-            st.error(f"Errore tecnico: {e}")
-            # Debug (rimuovere in produzione se necessario)
+            # --- GESTIONE ERRORI GENERICI ---
             st.markdown(f"""
 <div class='verify-card'>
     <div class='error-title'>❌ ERRORE DI SISTEMA</div>
-    <div class='error-text'>Si è verificato un errore durante la verifica:<br>{str(e)}</div>
+    <div class='error-text'>Si è verificato un errore tecnico:<br>{str(e)}</div>
 </div>
 """, unsafe_allow_html=True)
 
 else:
+    # --- HOMEPAGE (SENZA CODICE) ---
     st.info("📱 Scansiona il QR code sul certificato per verificarne l'autenticità")
