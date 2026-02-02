@@ -1,19 +1,18 @@
 import streamlit as st
-import libsql_experimental as libsql
+from supabase import create_client, Client
 from datetime import datetime
 import time
 
 st.set_page_config(page_title="A.L.C.I. Verifica", page_icon="🔍", layout="centered")
 
+# --- SUPABASE CONNECTION ---
 @st.cache_resource
-def get_db():
-    url = st.secrets["turso"]["url"]
-    token = st.secrets["turso"]["token"]
-    conn = libsql.connect("alci_local.db", sync_url=url, auth_token=token)
-    conn.sync()
-    return conn
+def init_supabase():
+    url = st.secrets["supabase"]["url"]
+    key = st.secrets["supabase"]["key"]
+    return create_client(url, key)
 
-db = get_db()
+supabase: Client = init_supabase()
 
 st.markdown("""
 <style>
@@ -52,7 +51,9 @@ if code_param:
         time.sleep(0.5)
         
         try:
-            cert = db.execute("SELECT * FROM certificati WHERE code=?", (code_param,)).fetchone()
+            # Query Supabase
+            response = supabase.table("certificati").select("*").eq("code", code_param).execute()
+            cert = response.data[0] if response.data else None
             
             if not cert:
                 html_error = f"""
@@ -68,7 +69,10 @@ if code_param:
                 st.markdown(html_error, unsafe_allow_html=True)
                 st.stop()
             
-            staz = db.execute("SELECT ragione_sociale, citta FROM stazioni WHERE stazione_id=?", (cert['stazione_id'],)).fetchone()
+            # Recupero info stazione
+            staz_resp = supabase.table("stazioni").select("ragione_sociale, citta").eq("stazione_id", cert['stazione_id']).execute()
+            staz = staz_resp.data[0] if staz_resp.data else None
+            
             stazione_info = f"{staz['ragione_sociale']} ({staz['citta']})" if staz else cert['stazione_id']
 
             if cert["stato"] == "GENERATO":
@@ -86,9 +90,16 @@ if code_param:
                 st.markdown(html_warning, unsafe_allow_html=True)
             
             elif cert["stato"] == "ATTIVO":
-                data_att = datetime.fromisoformat(cert["data_uso"])
+                # Gestione formato data ISO da Supabase
+                try:
+                    data_att = datetime.fromisoformat(cert["data_uso"].replace('Z', '+00:00'))
+                except:
+                    data_att = datetime.fromisoformat(cert["data_uso"])
+
                 data_att_str = data_att.strftime("%d/%m/%Y alle ore %H:%M")
-                giorni_fa = (datetime.now() - data_att).days
+                
+                # Calcolo giorni (rimuovendo tz info per confronto semplice)
+                giorni_fa = (datetime.now().replace(tzinfo=None) - data_att.replace(tzinfo=None)).days
                 targa_info = cert['targa'] if cert['targa'] else 'Non specificata'
                 
                 alert_html = ""
