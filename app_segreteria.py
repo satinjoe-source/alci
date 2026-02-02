@@ -1,12 +1,11 @@
 # app_segreteria.py
 import streamlit as st
 import pandas as pd
-import sqlite3
+import libsql_experimental as libsql
 import qrcode
 import io
 import base64
 from datetime import datetime, timedelta
-import shutil
 
 BASE_URL = "https://appverificapy.streamlit.app"
 
@@ -14,14 +13,15 @@ st.set_page_config(page_title="A.L.C.I. Segreteria", page_icon="🏢", layout="w
 
 @st.cache_resource
 def get_db():
-    conn = sqlite3.connect("alci.db", check_same_thread=False)
-    conn.row_factory = sqlite3.Row
+    url = st.secrets["turso"]["url"]
+    token = st.secrets["turso"]["token"]
+    conn = libsql.connect("alci_local.db", sync_url=url, auth_token=token)
+    conn.sync()
     return conn
 
 def init_db():
     conn = get_db()
-    c = conn.cursor()
-    c.executescript("""
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS stazioni (
             stazione_id TEXT PRIMARY KEY,
             ragione_sociale TEXT,
@@ -45,6 +45,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_data_uso ON certificati(data_uso);
     """)
     conn.commit()
+    conn.sync()
     return conn
 
 db = init_db()
@@ -82,11 +83,6 @@ st.markdown("""
     .kpi-card:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
     .kpi-label { font-size: 13px; color: #586069; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-bottom: 8px; }
     .kpi-value { font-size: 36px; font-weight: 700; color: #24292e; line-height: 1; }
-    .alert-card {
-        background: #fff5f5; border-left: 4px solid #e53e3e;
-        padding: 16px 20px; border-radius: 8px; margin-bottom: 16px;
-    }
-    .alert-card h4 { color: #e53e3e; margin: 0 0 8px; font-size: 15px; }
     .section-title {
         font-size: 20px; font-weight: 700; color: #24292e;
         margin: 32px 0 16px; padding-bottom: 12px; border-bottom: 2px solid #e1e4e8;
@@ -158,7 +154,7 @@ if page == "📊 Dashboard":
                 <div class='kpi-value' style='color:#2563eb'>{format_number(att_mese)}</div>
             </div>
             <div class='kpi-card'>
-                <div class='kpi-label'>Attivati Quest'Anno</div>
+                <div class='kpi-label'>Attivati Quest\'Anno</div>
                 <div class='kpi-value' style='color:#f59e0b'>{format_number(att_anno)}</div>
             </div>
         </div>
@@ -181,9 +177,9 @@ if page == "📊 Dashboard":
     """, db)
     
     if not df_rim.empty:
-        df_rim['Totale'] = df_rim['Totale'].apply(lambda x: format_number(x))
-        df_rim['Rimanenti'] = df_rim['Rimanenti'].apply(lambda x: format_number(x))
-        df_rim['Attivati'] = df_rim['Attivati'].apply(lambda x: format_number(x))
+        df_rim['Totale'] = df_rim['Totale'].apply(lambda x: format_number(int(x)))
+        df_rim['Rimanenti'] = df_rim['Rimanenti'].apply(lambda x: format_number(int(x)))
+        df_rim['Attivati'] = df_rim['Attivati'].apply(lambda x: format_number(int(x)))
         st.dataframe(df_rim, use_container_width=True, hide_index=True)
 
 elif page == "📦 Gestione Lotti":
@@ -262,6 +258,7 @@ elif page == "📦 Gestione Lotti":
                     rows
                 )
                 db.commit()
+                db.sync()
                 
                 st.success(f"✅ **Lotto generato:** {format_number(quantita)} certificati")
                 st.info(f"**ID Lotto:** `{lotto_id}`  \n**Range:** {format_number(num_inizio)} → {format_number(num_fine)}")
@@ -310,9 +307,9 @@ Ogni certificato deve avere il suo QR code univoco.
     """, db)
     
     if not df_lotti.empty:
-        df_lotti['Totale'] = df_lotti['Totale'].apply(lambda x: format_number(x))
-        df_lotti['Non Attivati'] = df_lotti['Non Attivati'].apply(lambda x: format_number(x))
-        df_lotti['Attivati'] = df_lotti['Attivati'].apply(lambda x: format_number(x))
+        df_lotti['Totale'] = df_lotti['Totale'].apply(lambda x: format_number(int(x)))
+        df_lotti['Non Attivati'] = df_lotti['Non Attivati'].apply(lambda x: format_number(int(x)))
+        df_lotti['Attivati'] = df_lotti['Attivati'].apply(lambda x: format_number(int(x)))
         st.dataframe(df_lotti, use_container_width=True, hide_index=True)
 
 elif page == "🔍 QR Code":
@@ -466,10 +463,11 @@ elif page == "🏭 Stazioni":
                     VALUES (?,?,?,?,?,1)
                 """, (sid, rag, citta, lat, lon))
                 db.commit()
+                db.sync()
                 st.success(f"✅ Stazione {sid} aggiunta")
                 st.rerun()
-            except sqlite3.IntegrityError:
-                st.error("❌ ID già esistente")
+            except Exception as e:
+                st.error(f"❌ Errore: {e}")
 
 elif page == "🔧 Diagnostica DB":
     st.markdown("""
@@ -486,11 +484,9 @@ elif page == "🔧 Diagnostica DB":
     if search_code:
         code_clean = search_code.strip().upper()
         
-        # Query diretta senza cache
-        conn_direct = sqlite3.connect("alci.db")
-        conn_direct.row_factory = sqlite3.Row
-        cert = conn_direct.execute("SELECT * FROM certificati WHERE code=?", (code_clean,)).fetchone()
-        conn_direct.close()
+        # Forza sync prima di cercare
+        db.sync()
+        cert = db.execute("SELECT * FROM certificati WHERE code=?", (code_clean,)).fetchone()
         
         if cert:
             st.success(f"✅ Certificato trovato: **{cert['code']}**")
@@ -524,6 +520,7 @@ elif page == "🔧 Diagnostica DB":
                         WHERE code=?
                     """, (code_clean,))
                     db.commit()
+                    db.sync()
                     st.cache_resource.clear()
                     st.success("✅ Certificato resettato a GENERATO")
                     st.rerun()
@@ -537,6 +534,7 @@ elif page == "🔧 Diagnostica DB":
                             WHERE code=?
                         """, (datetime.now().isoformat(), code_clean))
                         db.commit()
+                        db.sync()
                         st.cache_resource.clear()
                         st.success("✅ Certificato forzato ad ATTIVO")
                         st.rerun()
@@ -547,6 +545,7 @@ elif page == "🔧 Diagnostica DB":
                     if conferma_elim:
                         db.execute("DELETE FROM certificati WHERE code=?", (code_clean,))
                         db.commit()
+                        db.sync()
                         st.cache_resource.clear()
                         st.error("🗑️ Certificato eliminato")
                         st.rerun()
@@ -565,6 +564,10 @@ elif page == "🔧 Diagnostica DB":
             st.cache_resource.clear()
             st.cache_data.clear()
             st.success("✅ Cache pulita! Ricarica la pagina.")
+        
+        if st.button("🔄 Sincronizza Database", type="primary"):
+            db.sync()
+            st.success("✅ Database sincronizzato con Turso!")
     
     with col2:
         st.markdown("#### 📊 Statistiche DB")
@@ -580,13 +583,13 @@ elif page == "🔧 Diagnostica DB":
     st.markdown("### 🔍 Trova Duplicati o Inconsistenze")
     
     if st.button("🔎 Scansiona Database"):
-        # Cerca stati NULL
+        db.sync()
+        
         null_stati = pd.read_sql("SELECT code, stazione_id FROM certificati WHERE stato IS NULL OR stato=''", db)
         if not null_stati.empty:
             st.warning(f"⚠️ Trovati {len(null_stati)} certificati con stato NULL")
             st.dataframe(null_stati)
         
-        # Cerca ATTIVO senza data
         attivi_senza_data = pd.read_sql("SELECT code, stazione_id FROM certificati WHERE stato='ATTIVO' AND data_uso IS NULL", db)
         if not attivi_senza_data.empty:
             st.error(f"❌ Trovati {len(attivi_senza_data)} certificati ATTIVI senza data_uso")
@@ -596,10 +599,10 @@ elif page == "🔧 Diagnostica DB":
                 db.execute("UPDATE certificati SET data_uso=? WHERE stato='ATTIVO' AND data_uso IS NULL", 
                           (datetime.now().isoformat(),))
                 db.commit()
+                db.sync()
                 st.success("✅ Corretti!")
                 st.rerun()
         
-        # Cerca GENERATO con data
         generati_con_data = pd.read_sql("SELECT code, stazione_id, data_uso FROM certificati WHERE stato='GENERATO' AND data_uso IS NOT NULL", db)
         if not generati_con_data.empty:
             st.error(f"❌ Trovati {len(generati_con_data)} certificati GENERATI con data_uso")
@@ -608,6 +611,7 @@ elif page == "🔧 Diagnostica DB":
             if st.button("🔧 Pulisci date"):
                 db.execute("UPDATE certificati SET data_uso=NULL WHERE stato='GENERATO' AND data_uso IS NOT NULL")
                 db.commit()
+                db.sync()
                 st.success("✅ Date pulite!")
                 st.rerun()
         
@@ -627,21 +631,8 @@ elif page == "⚙️ Impostazioni":
     with col1:
         st.markdown("### 🌐 Configurazione")
         st.info(f"**URL Verifica:** {BASE_URL}")
+        st.success("**Database:** Turso Cloud (persistente)")
         st.caption("Per cambiare l'URL, modifica BASE_URL nel codice")
-        
-        st.markdown("---")
-        st.markdown("### 💾 Backup Database")
-        if st.button("📥 Crea Backup", type="primary"):
-            backup_path = f"alci_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-            shutil.copy2("alci.db", backup_path)
-            st.success(f"✅ Backup creato: `{backup_path}`")
-            with open(backup_path, "rb") as f:
-                st.download_button(
-                    label="⬇️ Scarica Backup",
-                    data=f,
-                    file_name=backup_path,
-                    mime="application/octet-stream"
-                )
     
     with col2:
         st.markdown("### 🗑️ Reset Database")
@@ -651,5 +642,6 @@ elif page == "⚙️ Impostazioni":
             if st.button("🗑️ RESET COMPLETO", type="secondary"):
                 db.execute("DELETE FROM certificati")
                 db.commit()
+                db.sync()
                 st.error("🗑️ Database resettato")
                 st.rerun()
