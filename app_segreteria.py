@@ -8,9 +8,9 @@ import base64
 from datetime import datetime, timedelta
 import shutil
 
-BASE_URL = "https://appverificapy.streamlit.app"  # URL app verifica pubblica
+BASE_URL = "https://appverificapy.streamlit.app"
 
-st.set_page_config(page_title="ALCI Segreteria", page_icon="🏢", layout="wide")
+st.set_page_config(page_title="A.L.C.I. Segreteria", page_icon="🏢", layout="wide")
 
 @st.cache_resource
 def get_db():
@@ -50,9 +50,7 @@ def init_db():
 db = init_db()
 
 def make_qr_image(code: str) -> str:
-    """Genera QR code semplice con solo il codice certificato"""
     url = f"{BASE_URL}/?c={code}"
-    
     qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=4)
     qr.add_data(url)
     qr.make(fit=True)
@@ -107,7 +105,7 @@ with st.sidebar:
             <div style='font-size:32px; font-weight:900; 
                         background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
                         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-                        letter-spacing: 2px;'>ALCI</div>
+                        letter-spacing: 2px;'>A.L.C.I.</div>
             <div style='color:#6c757d; font-size:12px; margin-top:4px; font-weight:600;'>SEGRETERIA</div>
         </div>
     """, unsafe_allow_html=True)
@@ -119,6 +117,7 @@ with st.sidebar:
         "🔍 QR Code",
         "🚨 Alert Sospetti",
         "🏭 Stazioni",
+        "🔧 Diagnostica DB",
         "⚙️ Impostazioni"
     ])
 
@@ -126,7 +125,7 @@ if page == "📊 Dashboard":
     st.markdown("""
         <div class='main-header'>
             <h1>📊 Dashboard Centrale</h1>
-            <p>Panoramica sistema certificati ALCI</p>
+            <p>Panoramica sistema certificati A.L.C.I.</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -273,8 +272,8 @@ elif page == "📦 Gestione Lotti":
                 primo_codice = f"{prefix}-{str(num_inizio).zfill(7)}"
                 ultimo_codice = f"{prefix}-{str(num_fine).zfill(7)}"
                 
-                st.code(f"""
-ORDINE STAMPA CERTIFICATI ALCI
+                istruzioni_txt = f"""
+ORDINE STAMPA CERTIFICATI A.L.C.I.
 
 Range: {primo_codice} → {ultimo_codice}
 Quantità: {format_number(quantita)} certificati
@@ -288,7 +287,8 @@ QR CODE DA STAMPARE:
 IMPORTANTE:
 Il QR code deve contenere l'URL completo con il codice del singolo certificato.
 Ogni certificato deve avere il suo QR code univoco.
-                """, language="text")
+"""
+                st.code(istruzioni_txt, language="text")
     
     st.markdown("</div>", unsafe_allow_html=True)
     
@@ -470,6 +470,149 @@ elif page == "🏭 Stazioni":
                 st.rerun()
             except sqlite3.IntegrityError:
                 st.error("❌ ID già esistente")
+
+elif page == "🔧 Diagnostica DB":
+    st.markdown("""
+        <div class='main-header'>
+            <h1>🔧 Diagnostica Database</h1>
+            <p>Verifica e ripara inconsistenze</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("### 🔍 Cerca Certificato")
+    
+    search_code = st.text_input("Inserisci codice certificato", placeholder="ALCI-0000002")
+    
+    if search_code:
+        code_clean = search_code.strip().upper()
+        
+        # Query diretta senza cache
+        conn_direct = sqlite3.connect("alci.db")
+        conn_direct.row_factory = sqlite3.Row
+        cert = conn_direct.execute("SELECT * FROM certificati WHERE code=?", (code_clean,)).fetchone()
+        conn_direct.close()
+        
+        if cert:
+            st.success(f"✅ Certificato trovato: **{cert['code']}**")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.metric("Stato Attuale", cert['stato'])
+                st.metric("Stazione", cert['stazione_id'])
+                st.metric("Lotto", cert['lotto'])
+            
+            with col2:
+                if cert['data_uso']:
+                    data_str = datetime.fromisoformat(cert['data_uso']).strftime("%d/%m/%Y %H:%M")
+                    st.metric("Data Attivazione", data_str)
+                else:
+                    st.metric("Data Attivazione", "Non attivato")
+                
+                st.metric("Targa", cert['targa'] or "Non specificata")
+            
+            st.markdown("---")
+            st.markdown("### 🔧 Azioni Correttive")
+            
+            col_a, col_b, col_c = st.columns(3)
+            
+            with col_a:
+                if st.button("🔄 Resetta a GENERATO", type="secondary"):
+                    db.execute("""
+                        UPDATE certificati 
+                        SET stato='GENERATO', data_uso=NULL, targa=NULL, note=NULL
+                        WHERE code=?
+                    """, (code_clean,))
+                    db.commit()
+                    st.cache_resource.clear()
+                    st.success("✅ Certificato resettato a GENERATO")
+                    st.rerun()
+            
+            with col_b:
+                if cert['stato'] == 'GENERATO':
+                    if st.button("✅ Forza ATTIVO", type="primary"):
+                        db.execute("""
+                            UPDATE certificati 
+                            SET stato='ATTIVO', data_uso=?
+                            WHERE code=?
+                        """, (datetime.now().isoformat(), code_clean))
+                        db.commit()
+                        st.cache_resource.clear()
+                        st.success("✅ Certificato forzato ad ATTIVO")
+                        st.rerun()
+            
+            with col_c:
+                if st.button("🗑️ Elimina Certificato"):
+                    conferma_elim = st.checkbox("Conferma eliminazione", key="conf_elim")
+                    if conferma_elim:
+                        db.execute("DELETE FROM certificati WHERE code=?", (code_clean,))
+                        db.commit()
+                        st.cache_resource.clear()
+                        st.error("🗑️ Certificato eliminato")
+                        st.rerun()
+        
+        else:
+            st.error("❌ Certificato non trovato")
+    
+    st.markdown("---")
+    st.markdown("### 🔧 Azioni Globali")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### 🔄 Refresh Cache")
+        if st.button("Pulisci Cache Streamlit", type="secondary"):
+            st.cache_resource.clear()
+            st.cache_data.clear()
+            st.success("✅ Cache pulita! Ricarica la pagina.")
+    
+    with col2:
+        st.markdown("#### 📊 Statistiche DB")
+        tot = db.execute("SELECT COUNT(*) as c FROM certificati").fetchone()[0]
+        gen = db.execute("SELECT COUNT(*) as c FROM certificati WHERE stato='GENERATO'").fetchone()[0]
+        att = db.execute("SELECT COUNT(*) as c FROM certificati WHERE stato='ATTIVO'").fetchone()[0]
+        
+        st.metric("Totale Certificati", format_number(tot))
+        st.metric("GENERATO", format_number(gen))
+        st.metric("ATTIVO", format_number(att))
+    
+    st.markdown("---")
+    st.markdown("### 🔍 Trova Duplicati o Inconsistenze")
+    
+    if st.button("🔎 Scansiona Database"):
+        # Cerca stati NULL
+        null_stati = pd.read_sql("SELECT code, stazione_id FROM certificati WHERE stato IS NULL OR stato=''", db)
+        if not null_stati.empty:
+            st.warning(f"⚠️ Trovati {len(null_stati)} certificati con stato NULL")
+            st.dataframe(null_stati)
+        
+        # Cerca ATTIVO senza data
+        attivi_senza_data = pd.read_sql("SELECT code, stazione_id FROM certificati WHERE stato='ATTIVO' AND data_uso IS NULL", db)
+        if not attivi_senza_data.empty:
+            st.error(f"❌ Trovati {len(attivi_senza_data)} certificati ATTIVI senza data_uso")
+            st.dataframe(attivi_senza_data)
+            
+            if st.button("🔧 Correggi Automaticamente"):
+                db.execute("UPDATE certificati SET data_uso=? WHERE stato='ATTIVO' AND data_uso IS NULL", 
+                          (datetime.now().isoformat(),))
+                db.commit()
+                st.success("✅ Corretti!")
+                st.rerun()
+        
+        # Cerca GENERATO con data
+        generati_con_data = pd.read_sql("SELECT code, stazione_id, data_uso FROM certificati WHERE stato='GENERATO' AND data_uso IS NOT NULL", db)
+        if not generati_con_data.empty:
+            st.error(f"❌ Trovati {len(generati_con_data)} certificati GENERATI con data_uso")
+            st.dataframe(generati_con_data)
+            
+            if st.button("🔧 Pulisci date"):
+                db.execute("UPDATE certificati SET data_uso=NULL WHERE stato='GENERATO' AND data_uso IS NOT NULL")
+                db.commit()
+                st.success("✅ Date pulite!")
+                st.rerun()
+        
+        if null_stati.empty and attivi_senza_data.empty and generati_con_data.empty:
+            st.success("✅ Nessuna inconsistenza trovata!")
 
 elif page == "⚙️ Impostazioni":
     st.markdown("""
