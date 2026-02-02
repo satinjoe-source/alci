@@ -1,19 +1,20 @@
 # app_verifica.py
 import streamlit as st
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 import time
 
+# Configurazione pagina
 st.set_page_config(page_title="A.L.C.I. Verifica", page_icon="🔍", layout="centered")
 
 @st.cache_resource
 def get_db():
+    # Assicurati che il file alci.db esista nella stessa cartella
     conn = sqlite3.connect("alci.db", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
-db = get_db()
-
+# Blocco CSS
 st.markdown("""
 <style>
     .stApp { 
@@ -108,7 +109,7 @@ st.markdown("""
     .alert-old-title {
         color: #dc2626; 
         margin: 0 0 8px 0; 
-        font-weight: 700;
+        font-weight: 700; 
         font-size: 16px;
     }
     .alert-old-text {
@@ -119,63 +120,77 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Logo fuori dal riquadro
+# Intestazione Logo
 st.markdown("""
-    <div class='logo-container'>
-        <div class='logo-title'>🔍 A.L.C.I.</div>
-        <div class='subtitle'>Verifica Certificato Lavaggio Cisterna</div>
-    </div>
+<div class='logo-container'>
+    <div class='logo-title'>🔍 A.L.C.I.</div>
+    <div class='subtitle'>Verifica Certificato Lavaggio Cisterna</div>
+</div>
 """, unsafe_allow_html=True)
 
-params = st.query_params
-code_param = params.get("c", "")
+try:
+    db = get_db()
+except Exception as e:
+    st.error(f"Errore connessione database: {e}")
+    st.stop()
+
+# Recupero parametri URL
+# Nota: st.query_params funziona nelle versioni recenti di Streamlit. 
+# Se usi una versione molto vecchia usa st.experimental_get_query_params()
+try:
+    params = st.query_params
+    # Gestione compatibilità: a volte ritorna una lista, a volte una stringa
+    code_param = params.get("c", "")
+    if isinstance(code_param, list):
+        code_param = code_param[0]
+except:
+    code_param = ""
 
 if code_param:
     with st.spinner("🔍 Verifica in corso..."):
-        time.sleep(0.8)
+        time.sleep(0.5) # Piccolo delay per UX
         
         try:
             cert = db.execute("SELECT * FROM certificati WHERE code=?", (code_param,)).fetchone()
             
             if not cert:
-                # CERTIFICATO NON TROVATO
+                # --- CERTIFICATO NON TROVATO ---
                 st.markdown(f"""
-                    <div class='verify-card'>
-                        <div class='error-title'>❌ CERTIFICATO NON VALIDO</div>
-                        <div class='error-text'>
-                            <strong>Codice:</strong> {code_param}<br><br>
-                            Il numero di serie non esiste nel database A.L.C.I.<br>
-                            Possibile contraffazione.
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
+<div class='verify-card'>
+    <div class='error-title'>❌ CERTIFICATO NON VALIDO</div>
+    <div class='error-text'>
+        <strong>Codice:</strong> {code_param}<br><br>
+        Il numero di serie non esiste nel database A.L.C.I.<br>
+        Possibile contraffazione.
+    </div>
+</div>
+""", unsafe_allow_html=True)
                 st.stop()
             
+            # Recupero dati stazione
             staz = db.execute("SELECT ragione_sociale, citta FROM stazioni WHERE stazione_id=?", (cert['stazione_id'],)).fetchone()
-            
+            stazione_info = f"{staz['ragione_sociale']} ({staz['citta']})" if staz else cert['stazione_id']
+
             if cert["stato"] == "GENERATO":
-                # CERTIFICATO NON ATTIVATO
-                stazione_info = f"{staz['ragione_sociale']} ({staz['citta']})" if staz else cert['stazione_id']
-                
+                # --- CERTIFICATO NON ATTIVATO ---
                 st.markdown(f"""
-                    <div class='verify-card'>
-                        <div class='warning-title'>⚠️ CERTIFICATO NON ATTIVATO</div>
-                        <div class='warning-text'>
-                            <strong>Codice:</strong> {cert['code']}<br>
-                            <strong>Stazione:</strong> {stazione_info}<br>
-                            <strong>Lotto:</strong> {cert['lotto']}<br><br>
-                            Questo certificato non è ancora stato attivato dalla stazione di lavaggio.
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
+<div class='verify-card'>
+    <div class='warning-title'>⚠️ CERTIFICATO NON ATTIVATO</div>
+    <div class='warning-text'>
+        <strong>Codice:</strong> {cert['code']}<br>
+        <strong>Stazione:</strong> {stazione_info}<br>
+        <strong>Lotto:</strong> {cert['lotto']}<br><br>
+        Questo certificato non è ancora stato attivato dalla stazione di lavaggio.
+    </div>
+</div>
+""", unsafe_allow_html=True)
             
             elif cert["stato"] == "ATTIVO":
-                # CERTIFICATO ATTIVO
+                # --- CERTIFICATO ATTIVO ---
                 data_att = datetime.fromisoformat(cert["data_uso"])
                 data_att_str = data_att.strftime("%d/%m/%Y alle ore %H:%M")
                 giorni_fa = (datetime.now() - data_att).days
                 
-                stazione_info = f"{staz['ragione_sociale']} ({staz['citta']})" if staz else cert['stazione_id']
                 targa_info = cert['targa'] if cert['targa'] else 'Non specificata'
                 
                 # Alert se vecchio
@@ -189,45 +204,47 @@ if code_param:
                     """
                 
                 st.markdown(f"""
-                    <div class='verify-card'>
-                        <div class='result-title'>✅ CERTIFICATO VALIDO E ATTIVO</div>
-                        
-                        <div class='info-item'>
-                            <div class='info-label'>Codice Certificato</div>
-                            <div class='info-value'>{cert['code']}</div>
-                        </div>
-                        
-                        <div class='info-item'>
-                            <div class='info-label'>Stazione di Lavaggio</div>
-                            <div class='info-value'>{stazione_info}</div>
-                        </div>
-                        
-                        <div class='info-item'>
-                            <div class='info-label'>Data e Ora Attivazione</div>
-                            <div class='info-value' style='font-weight:600;'>{data_att_str}</div>
-                        </div>
-                        
-                        <div class='info-item'>
-                            <div class='info-label'>Targa Veicolo</div>
-                            <div class='info-value'>{targa_info}</div>
-                        </div>
-                        
-                        <div class='info-item'>
-                            <div class='info-label'>Lotto</div>
-                            <div class='info-value'>{cert['lotto']}</div>
-                        </div>
-                        
-                        {alert_html}
-                    </div>
-                """, unsafe_allow_html=True)
+<div class='verify-card'>
+    <div class='result-title'>✅ CERTIFICATO VALIDO E ATTIVO</div>
+    
+    <div class='info-item'>
+        <div class='info-label'>Codice Certificato</div>
+        <div class='info-value'>{cert['code']}</div>
+    </div>
+    
+    <div class='info-item'>
+        <div class='info-label'>Stazione di Lavaggio</div>
+        <div class='info-value'>{stazione_info}</div>
+    </div>
+    
+    <div class='info-item'>
+        <div class='info-label'>Data e Ora Attivazione</div>
+        <div class='info-value' style='font-weight:600;'>{data_att_str}</div>
+    </div>
+    
+    <div class='info-item'>
+        <div class='info-label'>Targa Veicolo</div>
+        <div class='info-value'>{targa_info}</div>
+    </div>
+    
+    <div class='info-item'>
+        <div class='info-label'>Lotto</div>
+        <div class='info-value'>{cert['lotto']}</div>
+    </div>
+    
+    {alert_html}
+</div>
+""", unsafe_allow_html=True)
 
         except Exception as e:
+            st.error(f"Errore tecnico: {e}")
+            # Debug (rimuovere in produzione se necessario)
             st.markdown(f"""
-                <div class='verify-card'>
-                    <div class='error-title'>❌ ERRORE</div>
-                    <div class='error-text'>Si è verificato un errore durante la verifica:<br>{str(e)}</div>
-                </div>
-            """, unsafe_allow_html=True)
+<div class='verify-card'>
+    <div class='error-title'>❌ ERRORE DI SISTEMA</div>
+    <div class='error-text'>Si è verificato un errore durante la verifica:<br>{str(e)}</div>
+</div>
+""", unsafe_allow_html=True)
 
 else:
     st.info("📱 Scansiona il QR code sul certificato per verificarne l'autenticità")
