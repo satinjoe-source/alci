@@ -8,7 +8,7 @@ import base64
 from datetime import datetime, timedelta
 import shutil
 
-BASE_URL = "http://192.168.1.5:8502"  # URL app verifica
+BASE_URL = "https://appverificapy.streamlit.app"  # URL app verifica pubblica
 
 st.set_page_config(page_title="ALCI Segreteria", page_icon="🏢", layout="wide")
 
@@ -195,7 +195,7 @@ elif page == "📦 Gestione Lotti":
         </div>
     """, unsafe_allow_html=True)
     
-    st.info("💡 **Nota:** La tipografia stamperà QR code con URL semplice. Nessun file da inviare, solo comunicare il range.")
+    st.info(f"💡 **Nota:** La tipografia stamperà QR code con URL: {BASE_URL}/?c=CODICE")
     
     st.markdown("<div class='section-title'>➕ Nuovo Lotto</div>", unsafe_allow_html=True)
     
@@ -270,18 +270,24 @@ elif page == "📦 Gestione Lotti":
                 st.markdown("---")
                 st.markdown("### 📄 Istruzioni per Tipografia ModuloSei")
                 
+                primo_codice = f"{prefix}-{str(num_inizio).zfill(7)}"
+                ultimo_codice = f"{prefix}-{str(num_fine).zfill(7)}"
+                
                 st.code(f"""
 ORDINE STAMPA CERTIFICATI ALCI
 
-Range: {prefix}-{str(num_inizio).zfill(7)} → {prefix}-{str(num_fine).zfill(7)}
+Range: {primo_codice} → {ultimo_codice}
 Quantità: {format_number(quantita)} certificati
 Stazione: {staz_sel}
 
-QR CODE:
+QR CODE DA STAMPARE:
 - URL base: {BASE_URL}/?c=CODICE_CERTIFICATO
-- Esempio: {BASE_URL}/?c={prefix}-{str(num_inizio).zfill(7)}
+- Esempio primo: {BASE_URL}/?c={primo_codice}
+- Esempio ultimo: {BASE_URL}/?c={ultimo_codice}
 
+IMPORTANTE:
 Il QR code deve contenere l'URL completo con il codice del singolo certificato.
+Ogni certificato deve avere il suo QR code univoco.
                 """, language="text")
     
     st.markdown("</div>", unsafe_allow_html=True)
@@ -317,7 +323,7 @@ elif page == "🔍 QR Code":
         </div>
     """, unsafe_allow_html=True)
     
-    st.info(f"🌐 **URL Verifica:** {BASE_URL}")
+    st.info(f"🌐 **URL Verifica Pubblica:** {BASE_URL}")
     
     st.markdown("### Genera QR Code di Test")
     
@@ -387,7 +393,6 @@ elif page == "🚨 Alert Sospetti":
         </div>
     """, unsafe_allow_html=True)
     
-    # Certificati attivati da più di 7 giorni
     limite_giorni = (datetime.now() - timedelta(days=7)).isoformat()
     
     df_vecchi = pd.read_sql(f"""
@@ -477,10 +482,9 @@ elif page == "⚙️ Impostazioni":
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### 🌐 Configurazione URL")
-        new_url = st.text_input("URL Verifica Pubblica", value=BASE_URL, help="URL che verrà stampato nei QR code")
-        if st.button("💾 Salva URL"):
-            st.info("⚠️ Ricorda di aggiornare BASE_URL nel codice e rigenerare i lotti")
+        st.markdown("### 🌐 Configurazione")
+        st.info(f"**URL Verifica:** {BASE_URL}")
+        st.caption("Per cambiare l'URL, modifica BASE_URL nel codice")
         
         st.markdown("---")
         st.markdown("### 💾 Backup Database")
