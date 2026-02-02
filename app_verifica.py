@@ -1,127 +1,42 @@
 import streamlit as st
-import sqlite3
+import libsql_experimental as libsql
 from datetime import datetime
 import time
 
-# --- CONFIGURAZIONE ---
 st.set_page_config(page_title="A.L.C.I. Verifica", page_icon="🔍", layout="centered")
 
-# --- DATABASE ---
 @st.cache_resource
 def get_db():
-    # Il file alci.db deve essere nella root del repository
-    conn = sqlite3.connect("alci.db", check_same_thread=False)
-    conn.row_factory = sqlite3.Row
+    url = st.secrets["turso"]["url"]
+    token = st.secrets["turso"]["token"]
+    conn = libsql.connect("alci_local.db", sync_url=url, auth_token=token)
+    conn.sync()
     return conn
 
-# --- CSS STYLES ---
-# Nota: Questo blocco definisce l'aspetto grafico (card, ombre, colori)
+db = get_db()
+
 st.markdown("""
 <style>
-    .stApp { 
-        background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%); 
-    }
-    .logo-container {
-        text-align: center;
-        margin: 40px 0 20px 0;
-    }
-    .logo-title {
-        color: #2563eb; 
-        font-size: 56px;
-        font-weight: 900;
-        letter-spacing: 6px;
-        margin-bottom: 8px;
-    }
-    .subtitle {
-        color: #64748b; 
-        font-size: 18px;
-        margin-bottom: 0;
-    }
-    .verify-card {
-        background: white; 
-        padding: 40px; 
-        border-radius: 20px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.12); 
-        max-width: 700px; 
-        margin: 30px auto;
-    }
-    .result-title {
-        color: #16a34a; 
-        font-size: 28px;
-        font-weight: 700;
-        margin: 0 0 30px 0;
-        text-align: center;
-    }
-    .info-item {
-        margin: 20px 0;
-        padding-bottom: 20px;
-        border-bottom: 1px solid #e5e7eb;
-    }
-    .info-item:last-child {
-        border-bottom: none;
-        padding-bottom: 0;
-    }
-    .info-label {
-        color: #6b7280; 
-        font-weight: 600;
-        font-size: 13px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 8px;
-    }
-    .info-value {
-        color: #1e293b;
-        font-size: 18px;
-        font-weight: 500;
-    }
-    .error-title {
-        color: #dc2626; 
-        font-size: 28px;
-        font-weight: 700;
-        margin: 0 0 20px 0;
-        text-align: center;
-    }
-    .error-text {
-        color: #7f1d1d; 
-        line-height: 1.8;
-        text-align: center;
-        font-size: 16px;
-    }
-    .warning-title {
-        color: #d97706; 
-        font-size: 28px;
-        font-weight: 700;
-        margin: 0 0 20px 0;
-        text-align: center;
-    }
-    .warning-text {
-        color: #78350f;
-        line-height: 1.8;
-        text-align: center;
-        font-size: 16px;
-    }
-    .alert-old {
-        background: #fef2f2; 
-        border-left: 4px solid #dc2626; 
-        padding: 16px; 
-        border-radius: 8px; 
-        margin-top: 24px;
-    }
-    .alert-old-title {
-        color: #dc2626; 
-        margin: 0 0 8px 0; 
-        font-weight: 700; 
-        font-size: 16px;
-    }
-    .alert-old-text {
-        color: #7f1d1d; 
-        margin: 0; 
-        font-size: 14px;
-    }
+    .stApp { background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%); }
+    .logo-container { text-align: center; margin: 40px 0 20px 0; }
+    .logo-title { color: #2563eb; font-size: 56px; font-weight: 900; letter-spacing: 6px; margin-bottom: 8px; }
+    .subtitle { color: #64748b; font-size: 18px; margin-bottom: 0; }
+    .verify-card { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.12); max-width: 700px; margin: 30px auto; }
+    .result-title { color: #16a34a; font-size: 28px; font-weight: 700; margin: 0 0 30px 0; text-align: center; }
+    .info-item { margin: 20px 0; padding-bottom: 20px; border-bottom: 1px solid #e5e7eb; }
+    .info-item:last-child { border-bottom: none; padding-bottom: 0; }
+    .info-label { color: #6b7280; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .info-value { color: #1e293b; font-size: 18px; font-weight: 500; }
+    .error-title { color: #dc2626; font-size: 28px; font-weight: 700; margin: 0 0 20px 0; text-align: center; }
+    .error-text { color: #7f1d1d; line-height: 1.8; text-align: center; font-size: 16px; }
+    .warning-title { color: #d97706; font-size: 28px; font-weight: 700; margin: 0 0 20px 0; text-align: center; }
+    .warning-text { color: #78350f; line-height: 1.8; text-align: center; font-size: 16px; }
+    .alert-old { background: #fef2f2; border-left: 4px solid #dc2626; padding: 16px; border-radius: 8px; margin-top: 24px; }
+    .alert-old-title { color: #dc2626; margin: 0 0 8px 0; font-weight: 700; font-size: 16px; }
+    .alert-old-text { color: #7f1d1d; margin: 0; font-size: 14px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER LOGO ---
 st.markdown("""
 <div class='logo-container'>
     <div class='logo-title'>🔍 A.L.C.I.</div>
@@ -129,29 +44,16 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# --- LOGICA APPLICAZIONE ---
-
-# Connessione DB con gestione errore
-try:
-    db = get_db()
-except Exception as e:
-    st.error(f"Errore: Impossibile trovare il database alci.db. Assicurati di averlo caricato su GitHub. Dettagli: {e}")
-    st.stop()
-
-# Recupero parametro 'c' dall'URL
 query_params = st.query_params
 code_param = query_params.get("c", "")
 
 if code_param:
-    # Mostra spinner durante la ricerca
     with st.spinner("🔍 Verifica in corso..."):
-        time.sleep(0.5) 
+        time.sleep(0.5)
         
         try:
-            # Cerca certificato
             cert = db.execute("SELECT * FROM certificati WHERE code=?", (code_param,)).fetchone()
             
-            # --- CASO 1: NON TROVATO ---
             if not cert:
                 html_error = f"""
 <div class='verify-card'>
@@ -166,11 +68,9 @@ if code_param:
                 st.markdown(html_error, unsafe_allow_html=True)
                 st.stop()
             
-            # Recupera dati stazione
             staz = db.execute("SELECT ragione_sociale, citta FROM stazioni WHERE stazione_id=?", (cert['stazione_id'],)).fetchone()
             stazione_info = f"{staz['ragione_sociale']} ({staz['citta']})" if staz else cert['stazione_id']
 
-            # --- CASO 2: GENERATO MA NON ATTIVO ---
             if cert["stato"] == "GENERATO":
                 html_warning = f"""
 <div class='verify-card'>
@@ -185,15 +85,12 @@ if code_param:
 """
                 st.markdown(html_warning, unsafe_allow_html=True)
             
-            # --- CASO 3: ATTIVO E VALIDO ---
             elif cert["stato"] == "ATTIVO":
                 data_att = datetime.fromisoformat(cert["data_uso"])
                 data_att_str = data_att.strftime("%d/%m/%Y alle ore %H:%M")
                 giorni_fa = (datetime.now() - data_att).days
-                
                 targa_info = cert['targa'] if cert['targa'] else 'Non specificata'
                 
-                # Prepara alert HTML se il lavaggio è vecchio > 7 giorni
                 alert_html = ""
                 if giorni_fa > 7:
                     alert_html = f"""
@@ -203,7 +100,6 @@ if code_param:
 </div>
 """
                 
-                # Costruzione HTML Finale (SENZA INDENTAZIONE)
                 html_success = f"""
 <div class='verify-card'>
     <div class='result-title'>✅ CERTIFICATO VALIDO E ATTIVO</div>
@@ -233,7 +129,6 @@ if code_param:
                 st.markdown(html_success, unsafe_allow_html=True)
 
         except Exception as e:
-            # --- GESTIONE ERRORI GENERICI ---
             st.markdown(f"""
 <div class='verify-card'>
     <div class='error-title'>❌ ERRORE DI SISTEMA</div>
@@ -242,5 +137,4 @@ if code_param:
 """, unsafe_allow_html=True)
 
 else:
-    # --- HOMEPAGE (SENZA CODICE) ---
     st.info("📱 Scansiona il QR code sul certificato per verificarne l'autenticità")
