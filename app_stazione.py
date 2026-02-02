@@ -1,10 +1,8 @@
-# app_stazione.py
 import streamlit as st
 import pandas as pd
-import sqlite3
+import libsql_experimental as libsql
 from datetime import datetime
 from PIL import Image
-import io
 
 try:
     from pyzbar import pyzbar
@@ -12,12 +10,14 @@ try:
 except ImportError:
     PYZBAR_AVAILABLE = False
 
-st.set_page_config(page_title="ALCI Stazione", page_icon="🏭", layout="centered")
+st.set_page_config(page_title="A.L.C.I. Stazione", page_icon="🏭", layout="centered")
 
 @st.cache_resource
 def get_db():
-    conn = sqlite3.connect("alci.db", check_same_thread=False)
-    conn.row_factory = sqlite3.Row
+    url = st.secrets["turso"]["url"]
+    token = st.secrets["turso"]["token"]
+    conn = libsql.connect("alci_local.db", sync_url=url, auth_token=token)
+    conn.sync()
     return conn
 
 db = get_db()
@@ -70,7 +70,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# LOGIN
 if "stazione_logged" not in st.session_state:
     st.session_state.stazione_logged = None
 
@@ -78,7 +77,7 @@ if not st.session_state.stazione_logged:
     st.markdown("<div class='main-container'>", unsafe_allow_html=True)
     st.markdown("""
         <div class='header-box'>
-            <h1>🏭 ALCI - Attivazione Certificati</h1>
+            <h1>🏭 A.L.C.I. - Attivazione Certificati</h1>
             <p>Sistema di gestione lavaggio cisterne</p>
         </div>
     """, unsafe_allow_html=True)
@@ -107,7 +106,6 @@ if not st.session_state.stazione_logged:
     st.markdown("</div></div>", unsafe_allow_html=True)
     st.stop()
 
-# STAZIONE LOGGATA
 staz = db.execute("SELECT * FROM stazioni WHERE stazione_id=?", (st.session_state.stazione_logged,)).fetchone()
 
 st.markdown("<div class='main-container'>", unsafe_allow_html=True)
@@ -157,7 +155,6 @@ with tab1:
     if not PYZBAR_AVAILABLE:
         st.error("❌ **Libreria pyzbar non installata**")
         st.code("pip install pyzbar pillow", language="bash")
-        st.info("Su macOS serve anche: brew install zbar")
     else:
         uploaded_file = st.file_uploader(
             "📸 Scatta o carica una foto del QR code",
@@ -175,15 +172,12 @@ with tab1:
                 qr_data = decoded[0].data.decode('utf-8')
                 
                 try:
-                    # Estrai codice dall'URL
-                    # Formato: http://192.168.1.5:8502/?c=ALCI-0000001
                     if "?c=" in qr_data:
                         code = qr_data.split("?c=")[1].split("&")[0]
                     else:
                         st.error("❌ Formato QR non valido")
                         st.stop()
                     
-                    # Cerca certificato
                     cert = db.execute("SELECT * FROM certificati WHERE code=?", (code,)).fetchone()
                     
                     if not cert:
@@ -216,7 +210,6 @@ with tab1:
                         """, unsafe_allow_html=True)
                         st.stop()
                     
-                    # Certificato valido - mostra form
                     st.markdown(f"""
                         <div class='success-alert'>
                             <h3>✅ Certificato Valido</h3>
@@ -237,8 +230,8 @@ with tab1:
                                 WHERE code=?
                             """, (datetime.now().isoformat(), targa.upper().strip() if targa else None, note or None, cert['code']))
                             db.commit()
+                            db.sync()
                             st.success(f"✅ Certificato {cert['code']} attivato!")
-                            st.balloons()
                             st.rerun()
                     
                 except Exception as e:
@@ -324,9 +317,9 @@ with tab2:
                         WHERE code=?
                     """, (datetime.now().isoformat(), targa.upper().strip() if targa else None, note or None, cert['code']))
                     db.commit()
+                    db.sync()
                     st.session_state.cert_to_activate = None
                     st.success(f"✅ Certificato {cert['code']} attivato!")
-                    st.balloons()
                     st.rerun()
             
             with col_b:
