@@ -68,7 +68,7 @@ st.markdown("""
 if "stazione_logged" not in st.session_state:
     st.session_state.stazione_logged = None
 
-# --- LOGIN SCREEN ---
+# --- LOGIN SCREEN (CON EMAIL) ---
 if not st.session_state.stazione_logged:
     st.markdown("<div class='main-container'>", unsafe_allow_html=True)
     
@@ -86,34 +86,41 @@ if not st.session_state.stazione_logged:
         </div>
     """, unsafe_allow_html=True)
     
-    try:
-        stazioni_resp = supabase.table("stazioni").select("stazione_id, ragione_sociale, password").eq("attiva", True).execute()
-        stazioni = pd.DataFrame(stazioni_resp.data)
-    except:
-        stazioni = pd.DataFrame()
-    
-    if stazioni.empty:
-        st.error("❌ Nessuna stazione disponibile.")
-        st.stop()
-    
     st.markdown("<div class='action-box'>", unsafe_allow_html=True)
-    sel = st.selectbox(
-        "Seleziona la tua stazione",
-        stazioni["stazione_id"].tolist(),
-        format_func=lambda x: stazioni[stazioni["stazione_id"]==x]["ragione_sociale"].values[0]
-    )
-    pwd = st.text_input("Password", type="password")
+    
+    # INPUT DI LOGIN (EMAIL invece di ID)
+    email_input = st.text_input("Email Utente")
+    pwd_input = st.text_input("Password", type="password")
     
     if st.button("🔓 Accedi", type="primary"):
-        selected_staz = stazioni[stazioni["stazione_id"]==sel].iloc[0]
-        db_pwd = selected_staz.get("password")
-        valid_pwd = db_pwd if db_pwd else "lavaggio123"
-        
-        if pwd == valid_pwd:
-            st.session_state.stazione_logged = sel
-            st.rerun()
+        if email_input and pwd_input:
+            try:
+                # Cerchiamo la stazione attiva tramite EMAIL
+                response = supabase.table("stazioni").select("*")\
+                    .eq("email", email_input.strip())\
+                    .eq("attiva", True)\
+                    .execute()
+                
+                if response.data:
+                    found_stazione = response.data[0]
+                    # Controllo Password
+                    db_pwd = found_stazione.get("password")
+                    valid_pwd = db_pwd if db_pwd else "lavaggio123"
+                    
+                    if pwd_input == valid_pwd:
+                        # Salviamo l'ID in sessione per usarlo nel resto dell'app
+                        st.session_state.stazione_logged = found_stazione["stazione_id"]
+                        st.success(f"Benvenuto {found_stazione['ragione_sociale']}!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("❌ Password errata")
+                else:
+                    st.error("❌ Email non trovata o stazione non attiva")
+            except Exception as e:
+                st.error(f"Errore di connessione: {e}")
         else:
-            st.error("❌ Password errata")
+            st.warning("Inserisci Email e Password")
     
     st.markdown("</div></div>", unsafe_allow_html=True)
     st.stop()
@@ -122,7 +129,8 @@ if not st.session_state.stazione_logged:
 try:
     staz_resp = supabase.table("stazioni").select("*").eq("stazione_id", st.session_state.stazione_logged).execute()
     if not staz_resp.data:
-        raise Exception("Stazione non trovata")
+        st.session_state.stazione_logged = None
+        st.rerun()
     staz = staz_resp.data[0]
 except:
     st.session_state.stazione_logged = None
@@ -304,3 +312,4 @@ with tab3:
         st.info("Errore caricamento storico")
 
 st.markdown("</div></div>", unsafe_allow_html=True)
+     
