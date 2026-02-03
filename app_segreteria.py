@@ -444,19 +444,68 @@ elif page == "🔍 QR Code":
             except Exception as e: st.error(f"Errore: {e}")
 
 # --- ALERT SOSPETTI ---
-st.markdown("---")
-st.subheader("📡 Anomalie GPS (Tentativi fuori zona)")
-try:
-    # Recupera anomalie
-    res_anom = supabase.table("anomalie").select("*").order("data", desc=True).limit(50).execute()
-    df_anom = pd.DataFrame(res_anom.data)
-    if not df_anom.empty:
-        df_anom['data'] = pd.to_datetime(df_anom['data']).dt.strftime('%d/%m/%Y %H:%M')
-        st.dataframe(df_anom[["data", "stazione_id", "messaggio"]], use_container_width=True)
-    else:
-        st.info("Nessuna anomalia GPS registrata.")
-except Exception as e:
-    st.error(f"Errore caricamento anomalie: {e}")
+# --- ALERT SOSPETTI ---
+elif page == "🚨 Alert Sospetti":
+    st.markdown("<div class='main-header'><h1>🚨 Alert e Anomalie</h1></div>", unsafe_allow_html=True)
+    
+    # SEZIONE 1: CERTIFICATI VECCHI (> 7 GIORNI)
+    st.subheader("⚠️ Certificati attivati da molto tempo")
+    try:
+        # Scarichiamo gli ultimi 1000 certificati attivi
+        res = supabase.table("certificati").select("*").eq("stato", "ATTIVO").order("data_uso", desc=True).limit(1000).execute()
+        df = pd.DataFrame(res.data)
+        
+        if not df.empty:
+            # Convertiamo la data
+            df['data_uso'] = pd.to_datetime(df['data_uso'])
+            
+            # Gestione Timezone (se presente o meno)
+            if df['data_uso'].dt.tz is None:
+                now = pd.Timestamp.now()
+            else:
+                now = pd.Timestamp.now(tz=df['data_uso'].dt.tz)
+            
+            # Filtriamo quelli più vecchi di 7 giorni
+            old = df[df['data_uso'] < now - timedelta(days=7)].copy()
+            
+            if not old.empty:
+                st.warning(f"Attenzione: Ci sono {len(old)} certificati attivati da più di 7 giorni.")
+                # Formattiamo la data per renderla leggibile
+                old['data_uso'] = old['data_uso'].dt.strftime('%d/%m/%Y %H:%M')
+                st.dataframe(old[["code", "stazione_id", "data_uso", "targa"]], use_container_width=True)
+            else: 
+                st.success("✅ Nessun certificato attivo da più di 7 giorni.")
+        else: 
+            st.info("Nessun certificato attivo nel database.")
+            
+    except Exception as e: 
+        st.error(f"Errore durante l'analisi dei certificati: {str(e)}")
+
+    st.markdown("---")
+
+    # SEZIONE 2: ANOMALIE GPS (Tentativi bloccati)
+    st.subheader("📡 Anomalie GPS (Tentativi fuori zona)")
+    try:
+        # Recupera la tabella anomalie
+        res_anom = supabase.table("anomalie").select("*").order("data", desc=True).limit(50).execute()
+        df_anom = pd.DataFrame(res_anom.data)
+        
+        if not df_anom.empty:
+            # Formattiamo la data
+            df_anom['data'] = pd.to_datetime(df_anom['data']).dt.strftime('%d/%m/%Y %H:%M')
+            
+            # Mostriamo la tabella degli errori GPS
+            st.dataframe(
+                df_anom[["data", "stazione_id", "messaggio", "gps_rilevato"]], 
+                use_container_width=True, 
+                hide_index=True
+            )
+        else:
+            st.info("✅ Nessuna anomalia GPS registrata recentemente.")
+            
+    except Exception as e:
+        # Se la tabella anomalie non esiste ancora o c'è un errore
+        st.error(f"Errore caricamento anomalie (Hai creato la tabella 'anomalie' su Supabase?): {e}")
 
 # --- DIAGNOSTICA ---
 elif page == "🔧 Diagnostica DB":
