@@ -75,7 +75,7 @@ with st.sidebar:
     with col_center:
         try:
             # Larghezza consigliata per la sidebar: 130-150px
-            st.image("logo alci.jpg", width=600) 
+            st.image("logo alci.jpg", width=900) 
         except: 
             st.warning("No Logo")
         
@@ -85,7 +85,7 @@ with st.sidebar:
                         background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
                         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
                         letter-spacing: 2px;'>A.L.C.I.</div>
-            <div style='color:#6c757d; font-size:18px; margin-top:4px; font-weight:600;'>SEGRETERIA</div>
+            <div style='color:#6c757d; font-size:18px; margin-top:4px; font-weight:400;'>SEGRETERIA</div>
         </div>
     """, unsafe_allow_html=True)
     
