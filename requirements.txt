@@ -4,3 +4,4 @@ qrcode[pil]
 pillow
 pyzbar
 supabase
+geopy
