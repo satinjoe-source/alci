@@ -4,6 +4,8 @@ from supabase import create_client, Client
 from datetime import datetime
 from PIL import Image
 import time
+from streamlit_js_eval import get_geolocation
+from geopy.distance import geodesic
 
 # Tentativo di importazione pyzbar
 try:
@@ -27,7 +29,7 @@ def init_supabase():
 supabase = init_supabase()
 
 if not supabase:
-    st.error("❌ Errore di connessione a Supabase. Controlla i secrets.")
+    st.error("❌ Errore connessione Supabase.")
     st.stop()
 
 def format_number(n):
@@ -37,46 +39,32 @@ def format_number(n):
 st.markdown("""
 <style>
     .stApp { background-color: #f5f7fa; }
-    
-    /* FIX VISIBILITÀ INPUT E SELECTBOX */
-    .stSelectbox div[data-baseweb="select"] > div, 
-    .stTextInput input, 
-    .stTextArea textarea {
-        background-color: #ffffff !important;
-        border: 1px solid #cbd5e1 !important;
-        color: #1e293b !important;
-        border-radius: 8px !important;
+    .stSelectbox div[data-baseweb="select"] > div, .stTextInput input, .stTextArea textarea {
+        background-color: #ffffff !important; border: 1px solid #cbd5e1 !important; color: #1e293b !important; border-radius: 8px !important;
     }
-
     .main-container { max-width: 800px; margin: 0 auto; padding: 20px; }
     .header-box { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 24px; border-left: 4px solid #2563eb; }
-    .header-box h1 { margin: 0; font-size: 24px; color: #1e293b; font-weight: 600; }
-    .header-box p { margin: 4px 0 0; color: #64748b; font-size: 14px; }
     .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
     .stat-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; }
-    .stat-label { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; font-weight: 600; }
     .stat-value { font-size: 32px; font-weight: 700; color: #1e293b; }
-    .action-box { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 16px; }
+    .stat-label { font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase; }
     .success-alert { background: #f0fdf4; border: 1px solid #86efac; border-left: 4px solid #22c55e; padding: 16px; border-radius: 8px; margin: 16px 0; }
-    .success-alert h3 { color: #15803d; margin: 0 0 8px; font-size: 16px; }
     .error-alert { background: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #ef4444; padding: 16px; border-radius: 8px; margin: 16px 0; }
     .warning-alert { background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; padding: 16px; border-radius: 8px; margin: 16px 0; }
-    .stButton>button { width: 100%; border-radius: 8px; padding: 12px 24px; font-weight: 600; font-size: 15px; }
+    .gps-ok { color: #16a34a; font-weight: bold; font-size: 14px; }
+    .gps-ko { color: #dc2626; font-weight: bold; font-size: 14px; }
 </style>
 """, unsafe_allow_html=True)
 
 if "stazione_logged" not in st.session_state:
     st.session_state.stazione_logged = None
 
-# --- LOGIN SCREEN (CON EMAIL) ---
+# --- LOGIN SCREEN ---
 if not st.session_state.stazione_logged:
     st.markdown("<div class='main-container'>", unsafe_allow_html=True)
-    
-    # LOGO CENTRATO NEL LOGIN
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        try:
-            st.image("logo alci.jpg", width=150)
+        try: st.image("logo alci.jpg", width=150)
         except: pass
 
     st.markdown("""
@@ -86,65 +74,70 @@ if not st.session_state.stazione_logged:
         </div>
     """, unsafe_allow_html=True)
     
-    st.markdown("<div class='action-box'>", unsafe_allow_html=True)
-    
-    # INPUT DI LOGIN (EMAIL invece di ID)
+    st.markdown("<div style='background: white; padding: 24px; border-radius: 12px;'>", unsafe_allow_html=True)
     email_input = st.text_input("Email Utente")
     pwd_input = st.text_input("Password", type="password")
     
     if st.button("🔓 Accedi", type="primary"):
         if email_input and pwd_input:
             try:
-                # Cerchiamo la stazione attiva tramite EMAIL
-                response = supabase.table("stazioni").select("*")\
-                    .eq("email", email_input.strip())\
-                    .eq("attiva", True)\
-                    .execute()
-                
+                response = supabase.table("stazioni").select("*").eq("email", email_input.strip()).eq("attiva", True).execute()
                 if response.data:
                     found_stazione = response.data[0]
-                    # Controllo Password
-                    db_pwd = found_stazione.get("password")
-                    valid_pwd = db_pwd if db_pwd else "lavaggio123"
-                    
-                    if pwd_input == valid_pwd:
-                        # Salviamo l'ID in sessione per usarlo nel resto dell'app
+                    db_pwd = found_stazione.get("password", "lavaggio123")
+                    if pwd_input == db_pwd:
                         st.session_state.stazione_logged = found_stazione["stazione_id"]
                         st.success(f"Benvenuto {found_stazione['ragione_sociale']}!")
                         time.sleep(0.5)
                         st.rerun()
-                    else:
-                        st.error("❌ Password errata")
-                else:
-                    st.error("❌ Email non trovata o stazione non attiva")
-            except Exception as e:
-                st.error(f"Errore di connessione: {e}")
-        else:
-            st.warning("Inserisci Email e Password")
-    
+                    else: st.error("❌ Password errata")
+                else: st.error("❌ Email non trovata o stazione non attiva")
+            except Exception as e: st.error(f"Errore: {e}")
+        else: st.warning("Inserisci credenziali")
     st.markdown("</div></div>", unsafe_allow_html=True)
     st.stop()
 
-# --- MAIN APP ---
+# --- RECUPERO DATI STAZIONE ---
 try:
     staz_resp = supabase.table("stazioni").select("*").eq("stazione_id", st.session_state.stazione_logged).execute()
-    if not staz_resp.data:
-        st.session_state.stazione_logged = None
-        st.rerun()
     staz = staz_resp.data[0]
 except:
     st.session_state.stazione_logged = None
     st.rerun()
 
+# --- GPS CHECK ---
+loc = get_geolocation() # Richiede posizione al browser
+gps_status = "WAITING" # WAITING, OK, ERROR
+distanza_mt = 0
+
+if loc:
+    try:
+        user_coords = (loc['coords']['latitude'], loc['coords']['longitude'])
+        station_coords = (staz['gps_lat'], staz['gps_lon'])
+        
+        # Se la stazione non ha coordinate, saltiamo il controllo (o blocchiamo, a scelta)
+        if station_coords[0] and station_coords[1]:
+            distanza_mt = geodesic(user_coords, station_coords).meters
+            limit = staz.get('raggio_attivazione', 200) # Default 200 metri
+            
+            if distanza_mt <= limit:
+                gps_status = "OK"
+            else:
+                gps_status = "ERROR"
+        else:
+            gps_status = "OK" # Coordinate stazione mancanti, permettiamo (o mettere ERROR per obbligare)
+            distanza_mt = 0
+    except:
+        gps_status = "WAITING"
+
+# --- UI PRINCIPALE ---
 st.markdown("<div class='main-container'>", unsafe_allow_html=True)
 
 col1, col2 = st.columns([4, 1])
 with col1:
-    # LOGO E TITOLO STAZIONE
     c_logo, c_text = st.columns([0.8, 3.2])
     with c_logo:
-        try:
-            st.image("logo alci.jpg", width=80)
+        try: st.image("logo alci.jpg", width=80)
         except: pass
     with c_text:
         st.markdown(f"""
@@ -160,54 +153,64 @@ with col2:
         st.session_state.stazione_logged = None
         st.rerun()
 
+# --- BOX GPS ---
+if gps_status == "OK":
+    st.markdown(f"<div class='gps-ok'>📍 GPS OK (Distanza: {int(distanza_mt)}m)</div>", unsafe_allow_html=True)
+elif gps_status == "ERROR":
+    st.markdown(f"<div class='gps-ko'>⛔ POSIZIONE ERRATA (Distanza: {int(distanza_mt)}m). Impossibile attivare.</div>", unsafe_allow_html=True)
+else:
+    st.warning("📡 In attesa del GPS... (Assicurati di aver dato i permessi)")
+
 # --- STATISTICHE ---
 try:
     tot = supabase.table("certificati").select("*", count="exact", head=True).eq("stazione_id", staz['stazione_id']).execute().count
     att = supabase.table("certificati").select("*", count="exact", head=True).eq("stazione_id", staz['stazione_id']).eq("stato", "ATTIVO").execute().count
     disponibili = tot - att
-except:
-    tot, att, disponibili = 0, 0, 0
+except: tot, att, disponibili = 0, 0, 0
 
 st.markdown(f"""
     <div class='stats-grid'>
-        <div class='stat-card'>
-            <div class='stat-label'>Totale Assegnati</div>
-            <div class='stat-value'>{format_number(tot)}</div>
-        </div>
-        <div class='stat-card'>
-            <div class='stat-label'>Disponibili</div>
-            <div class='stat-value' style='color:#2563eb'>{format_number(disponibili)}</div>
-        </div>
-        <div class='stat-card'>
-            <div class='stat-label'>Attivati</div>
-            <div class='stat-value' style='color:#22c55e'>{format_number(att)}</div>
-        </div>
+        <div class='stat-card'><div class='stat-label'>Disponibili</div><div class='stat-value' style='color:#2563eb'>{format_number(disponibili)}</div></div>
+        <div class='stat-card'><div class='stat-label'>Attivati</div><div class='stat-value' style='color:#22c55e'>{format_number(att)}</div></div>
     </div>
 """, unsafe_allow_html=True)
 
-st.markdown("<div class='action-box'>", unsafe_allow_html=True)
-
-tab1, tab2, tab3 = st.tabs(["📸 Scansiona QR", "🔢 Inserisci Codice", "📋 Storico"])
+tab1, tab2 = st.tabs(["📸 Scansiona QR", "🔢 Manuale"])
 
 def verifica_e_mostra_cert(code):
     resp = supabase.table("certificati").select("*").eq("code", code).execute()
     if not resp.data:
-        st.markdown(f"<div class='error-alert'><h3>❌ Certificato non trovato</h3><p>Codice: <strong>{code}</strong></p></div>", unsafe_allow_html=True)
+        st.error("Certificato non trovato")
         return None
-    
     cert = resp.data[0]
-    
     if cert["stazione_id"] != staz["stazione_id"]:
-        st.markdown(f"<div class='error-alert'><h3>❌ Certificato non valido qui</h3><p>Assegnato a: <strong>{cert['stazione_id']}</strong></p></div>", unsafe_allow_html=True)
+        st.error("Certificato di un'altra stazione!")
         return None
-        
     if cert["stato"] == "ATTIVO":
-        st.markdown(f"<div class='warning-alert'><h3>⚠️ Già attivato</h3><p>Targa: {cert['targa']}</p></div>", unsafe_allow_html=True)
+        st.warning(f"Già attivato! Targa: {cert['targa']}")
         return None
-        
     return cert
 
 def attiva_certificato(code, targa, note):
+    # BLOCCO SE GPS ERROR
+    if gps_status == "ERROR":
+        st.error("⛔ Attivazione bloccata: Sei troppo lontano dalla stazione.")
+        # REGISTRA ANOMALIA
+        try:
+            supabase.table("anomalie").insert({
+                "stazione_id": staz['stazione_id'],
+                "tipo": "GPS_DISTANZA",
+                "messaggio": f"Tentativo attivazione {code} a {int(distanza_mt)}m di distanza",
+                "gps_rilevato": str(loc['coords']) if loc else "N/A"
+            }).execute()
+        except: pass
+        return False
+    
+    # Se GPS mancante ma richiesto (opzionale: bloccare anche se loc è None)
+    if loc is None and staz.get('gps_lat') is not None:
+         st.warning("⚠️ GPS non rilevato. Riprova tra poco.")
+         return False
+
     try:
         supabase.table("certificati").update({
             "stato": "ATTIVO",
@@ -220,96 +223,47 @@ def attiva_certificato(code, targa, note):
         st.error(f"Errore DB: {e}")
         return False
 
-# --- LOGICA DI SCANSIONE QR (Solo FILE) ---
-def processa_immagine_qr(img_file):
-    if not img_file: return
-    
-    image = Image.open(img_file)
-    decoded = pyzbar.decode(image)
-    
-    if decoded:
-        qr_data = decoded[0].data.decode('utf-8')
-        if "?c=" in qr_data:
-            code = qr_data.split("?c=")[1].split("&")[0]
-            cert = verifica_e_mostra_cert(code)
-            
-            if cert:
-                st.markdown(f"<div class='success-alert'><h3>✅ Rilevato: {cert['code']}</h3></div>", unsafe_allow_html=True)
-                with st.form(f"attiva_qr_{cert['code']}"):
-                    targa = st.text_input("🚛 Targa", max_chars=12)
-                    note = st.text_area("Note", max_chars=200)
-                    if st.form_submit_button("🔓 ATTIVA ORA", type="primary"):
-                        if attiva_certificato(cert['code'], targa, note):
-                            st.success(f"✅ Attivato!")
-                            time.sleep(1)
-                            st.rerun()
-        else:
-            st.error("QR Code non valido per A.L.C.I.")
-    else:
-        st.warning("Nessun QR code rilevato nella foto.")
-
+# --- LOGICA ATTIVAZIONE ---
 with tab1:
-    st.markdown("### Scansiona il QR Code")
-    st.info("Carica una foto del QR code presente sul certificato.")
-    
     if not PYZBAR_AVAILABLE:
-        st.error("""
-        ❌ **Libreria di sistema mancante.**
-        Per far funzionare il lettore QR su Streamlit Cloud:
-        1. Crea un file chiamato `packages.txt`
-        2. Scrivici dentro: `libzbar0`
-        3. Riavvia l'app.
-        """)
+        st.error("Libreria pyzbar non disponibile.")
     else:
-        uploaded_file = st.file_uploader("📸 Carica foto QR", type=["jpg","png","jpeg"], key="qr_up")
+        uploaded_file = st.file_uploader("Carica foto QR", type=["jpg","png"], key="qr_up")
         if uploaded_file:
-            st.image(uploaded_file, width=200)
-            processa_immagine_qr(uploaded_file)
+            img = Image.open(uploaded_file)
+            decoded = pyzbar.decode(img)
+            if decoded:
+                qr_d = decoded[0].data.decode('utf-8')
+                if "?c=" in qr_d:
+                    code = qr_d.split("?c=")[1].split("&")[0]
+                    cert = verifica_e_mostra_cert(code)
+                    if cert:
+                        st.success(f"Rilevato: {cert['code']}")
+                        with st.form(f"f_{cert['code']}"):
+                            t = st.text_input("Targa")
+                            n = st.text_input("Note")
+                            if st.form_submit_button("ATTIVA"):
+                                if attiva_certificato(cert['code'], t, n):
+                                    st.success("Fatto!")
+                                    time.sleep(1)
+                                    st.rerun()
 
 with tab2:
-    st.markdown("### Inserimento Manuale")
-    if "cert_manual" not in st.session_state:
-        st.session_state.cert_manual = None
-        
-    code_input = st.text_input("Codice Certificato", key="manual_code")
-    if st.button("🔍 Cerca"):
-        if code_input:
-            st.session_state.cert_manual = verifica_e_mostra_cert(code_input.strip().upper())
-            
-    if st.session_state.cert_manual:
-        cert = st.session_state.cert_manual
-        st.markdown(f"<div class='success-alert'><h3>✅ Pronto per attivazione: {cert['code']}</h3></div>", unsafe_allow_html=True)
-        with st.form("attiva_man"):
-            targa = st.text_input("🚛 Targa", max_chars=12)
-            note = st.text_area("Note", max_chars=200)
-            if st.form_submit_button("🔓 ATTIVA", type="primary"):
-                if attiva_certificato(cert['code'], targa, note):
-                    st.success("✅ Fatto!")
-                    st.session_state.cert_manual = None
+    ci = st.text_input("Codice Manuale")
+    if st.button("Cerca"):
+        st.session_state.man_cert = verifica_e_mostra_cert(ci.strip().upper())
+    
+    if "man_cert" in st.session_state and st.session_state.man_cert:
+        c = st.session_state.man_cert
+        st.info(f"Certificato: {c['code']}")
+        with st.form("f_man"):
+            t = st.text_input("Targa")
+            n = st.text_input("Note")
+            if st.form_submit_button("ATTIVA"):
+                if attiva_certificato(c['code'], t, n):
+                    st.success("Fatto!")
+                    st.session_state.man_cert = None
                     time.sleep(1)
                     st.rerun()
 
-with tab3:
-    st.markdown("### Ultimi 50 attivati")
-    try:
-        resp = supabase.table("certificati")\
-            .select("code, targa, data_uso, note")\
-            .eq("stazione_id", staz['stazione_id'])\
-            .eq("stato", "ATTIVO")\
-            .order("data_uso", desc=True)\
-            .limit(50)\
-            .execute()
-        
-        df = pd.DataFrame(resp.data)
-        if not df.empty:
-            df['data_uso'] = pd.to_datetime(df['data_uso']).dt.strftime('%d/%m/%Y %H:%M')
-            df = df[["code", "targa", "data_uso", "note"]]
-            df.columns = ["Codice", "Targa", "Data", "Note"]
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("Nessuno storico disponibile")
-    except:
-        st.info("Errore caricamento storico")
-
-st.markdown("</div></div>", unsafe_allow_html=True)
-     
+st.markdown("</div>", unsafe_allow_html=True)
