@@ -2,21 +2,19 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 from datetime import datetime
-from PIL import Image, ImageEnhance, ImageOps
+from PIL import Image, ImageEnhance
 import time
 from streamlit_js_eval import get_geolocation
 from geopy.distance import geodesic
 import numpy as np
 
 # --- IMPORTAZIONE MOTORI DI LETTURA ---
-# 1. Pyzbar (Principale)
 try:
     from pyzbar import pyzbar
     PYZBAR_AVAILABLE = True
 except ImportError:
     PYZBAR_AVAILABLE = False
 
-# 2. OpenCV (Riserva/Potenziato)
 try:
     import cv2
     CV2_AVAILABLE = True
@@ -183,7 +181,8 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-tab1, tab2 = st.tabs(["📸 Scansiona QR", "🔢 Manuale"])
+# TAB MENU AGGIORNATO
+tab1, tab2, tab3 = st.tabs(["📸 Scansiona", "🔢 Manuale", "❌ Annulla"])
 
 # --- FUNZIONI DI SUPPORTO ---
 def verifica_e_mostra_cert(code):
@@ -195,9 +194,6 @@ def verifica_e_mostra_cert(code):
         cert = resp.data[0]
         if cert["stazione_id"] != staz["stazione_id"]:
             st.error(f"❌ Certificato assegnato ad altra stazione ({cert['stazione_id']})")
-            return None
-        if cert["stato"] == "ATTIVO":
-            st.warning(f"⚠️ Già attivato! Targa: {cert['targa']}")
             return None
         return cert
     except Exception as e:
@@ -229,20 +225,12 @@ def attiva_certificato(code, targa, note):
         st.error(f"Errore DB: {e}")
         return False
 
-# --- MOTORE DI DECODIFICA AVANZATO ---
 def decodifica_robusta(image_file):
-    """
-    Tenta di leggere il QR code applicando diverse trasformazioni
-    """
     try:
-        # Carica immagine
         img_original = Image.open(image_file)
-        
-        # 1. RIDIMENSIONAMENTO (Se enorme, riduci per pyzbar)
         if img_original.width > 2000:
             img_original = img_original.resize((int(img_original.width/2), int(img_original.height/2)))
         
-        # LISTA DI IMMAGINI DA PROVARE
         attempts = [
             ("Originale", img_original),
             ("Scala di Grigi", img_original.convert('L')),
@@ -250,71 +238,54 @@ def decodifica_robusta(image_file):
             ("Bianco/Nero", img_original.convert('L').point(lambda p: 255 if p > 128 else 0))
         ]
 
-        # TENTATIVO 1: PYZBAR (Loop sui filtri)
         if PYZBAR_AVAILABLE:
             for name, img_variant in attempts:
                 decoded = pyzbar.decode(img_variant)
                 if decoded:
-                    data = decoded[0].data.decode('utf-8')
-                    # st.success(f"Letto con filtro: {name}") # Debug
-                    return data
+                    return decoded[0].data.decode('utf-8')
 
-        # TENTATIVO 2: OPENCV (Fallback potente)
         if CV2_AVAILABLE:
-            # Converti in formato OpenCV (numpy array)
             open_cv_image = np.array(img_original.convert('RGB')) 
-            # Converti RGB a BGR 
             open_cv_image = open_cv_image[:, :, ::-1].copy()
-            
             detector = cv2.QRCodeDetector()
             data, bbox, _ = detector.detectAndDecode(open_cv_image)
-            if data:
-                # st.success("Letto con OpenCV (AI)") # Debug
-                return data
+            if data: return data
                 
     except Exception as e:
-        st.error(f"Errore tecnico analisi immagine: {e}")
+        st.error(f"Errore tecnico analisi: {e}")
         
     return None
 
-# --- LOGICA ATTIVAZIONE (TAB 1) ---
+# --- TAB 1: ATTIVAZIONE QR ---
 with tab1:
     if not PYZBAR_AVAILABLE and not CV2_AVAILABLE:
-        st.error("❌ Nessuna libreria di lettura QR installata (manca libzbar0 o opencv).")
+        st.error("❌ Nessuna libreria di lettura QR installata.")
     else:
         uploaded_file = st.file_uploader("Carica foto QR", type=["jpg","png","jpeg"], key="qr_up")
-        
         if uploaded_file:
-            st.image(uploaded_file, width=200, caption="Analisi in corso...")
-            
-            # CHIAMATA AL DECODER ROBUSTO
+            st.image(uploaded_file, width=200, caption="Analisi...")
             qr_data = decodifica_robusta(uploaded_file)
-            
             if qr_data:
-                # Parsing del link (es. https://.../?c=CODICE)
                 if "?c=" in qr_data:
                     code = qr_data.split("?c=")[1].split("&")[0]
                     cert = verifica_e_mostra_cert(code)
-                    
                     if cert:
-                        st.markdown(f"<div class='success-alert'><h3>✅ Rilevato: {cert['code']}</h3></div>", unsafe_allow_html=True)
-                        
-                        # FORM ATTIVAZIONE
-                        with st.form(f"form_attivazione_{cert['code']}"):
-                            t = st.text_input("🚛 Targa Veicolo")
-                            n = st.text_input("Note (Opzionale)")
-                            
-                            if st.form_submit_button("🔓 ATTIVA ORA", type="primary"):
-                                if attiva_certificato(cert['code'], t, n):
-                                    st.success("✅ Attivazione riuscita!")
-                                    time.sleep(1.5)
-                                    st.rerun()
-                else:
-                    st.error(f"⚠️ QR Code rilevato ma non valido: {qr_data}")
-            else:
-                st.error("❌ Nessun QR Code trovato. Prova ad avvicinarti o aumentare la luminosità.")
+                        if cert["stato"] == "ATTIVO":
+                            st.warning(f"⚠️ Già attivato! Targa: {cert['targa']}")
+                        else:
+                            st.markdown(f"<div class='success-alert'><h3>✅ Rilevato: {cert['code']}</h3></div>", unsafe_allow_html=True)
+                            with st.form(f"form_qr_{cert['code']}"):
+                                t = st.text_input("🚛 Targa Veicolo")
+                                n = st.text_input("Note (Opzionale)")
+                                if st.form_submit_button("🔓 ATTIVA ORA", type="primary"):
+                                    if attiva_certificato(cert['code'], t, n):
+                                        st.success("✅ Attivazione riuscita!")
+                                        time.sleep(1.5)
+                                        st.rerun()
+                else: st.error("⚠️ QR Code non valido")
+            else: st.error("❌ Nessun QR Code trovato.")
 
-# --- LOGICA MANUALE (TAB 2) ---
+# --- TAB 2: MANUALE ---
 with tab2:
     ci = st.text_input("Inserisci Codice Manualmente")
     if st.button("Cerca"):
@@ -322,15 +293,75 @@ with tab2:
     
     if "man_cert" in st.session_state and st.session_state.man_cert:
         c = st.session_state.man_cert
-        st.info(f"Certificato Selezionato: {c['code']}")
-        with st.form("f_man"):
-            t = st.text_input("Targa")
-            n = st.text_input("Note")
-            if st.form_submit_button("ATTIVA"):
-                if attiva_certificato(c['code'], t, n):
-                    st.success("✅ Attivazione riuscita!")
-                    st.session_state.man_cert = None
+        
+        if c["stato"] == "ATTIVO":
+            st.warning(f"⚠️ Certificato {c['code']} già attivo!")
+        else:
+            st.info(f"Certificato Selezionato: {c['code']}")
+            with st.form("f_man"):
+                t = st.text_input("Targa")
+                n = st.text_input("Note")
+                if st.form_submit_button("ATTIVA"):
+                    if attiva_certificato(c['code'], t, n):
+                        st.success("✅ Attivazione riuscita!")
+                        st.session_state.man_cert = None
+                        time.sleep(1.5)
+                        st.rerun()
+
+# --- TAB 3: ANNULLA / MODIFICA ---
+with tab3:
+    st.markdown("### ❌ Gestione Errori")
+    st.info("Qui puoi annullare un'attivazione errata o invalidare un certificato stampato male.")
+    
+    cancel_code = st.text_input("Inserisci Codice da Annullare", key="cancel_input")
+    if st.button("🔍 Cerca per Annullare"):
+        st.session_state.cancel_cert = verifica_e_mostra_cert(cancel_code.strip().upper())
+        
+    if "cancel_cert" in st.session_state and st.session_state.cancel_cert:
+        cc = st.session_state.cancel_cert
+        st.markdown(f"""
+            <div style='background:white; padding:15px; border-radius:10px; border:1px solid #ddd;'>
+                <h3 style='margin:0'>{cc['code']}</h3>
+                <p>Stato attuale: <strong>{cc['stato']}</strong><br>
+                Targa: {cc.get('targa') or 'N/A'}<br>
+                Data Uso: {cc.get('data_uso') or 'N/A'}</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        col_reset, col_void = st.columns(2)
+        
+        # OPZIONE 1: RESET (Ho sbagliato targa o attivato per sbaglio)
+        with col_reset:
+            if cc['stato'] == 'ATTIVO':
+                if st.button("🔄 Annulla Attivazione (Reset)", help="Riporta lo stato a GENERATO. Usalo se hai attivato per sbaglio."):
+                    try:
+                        supabase.table("certificati").update({
+                            "stato": "GENERATO",
+                            "data_uso": None,
+                            "targa": None,
+                            "note": None
+                        }).eq("code", cc['code']).execute()
+                        st.success("✅ Attivazione annullata! Il codice è di nuovo vergine.")
+                        st.session_state.cancel_cert = None
+                        time.sleep(1.5)
+                        st.rerun()
+                    except Exception as e: st.error(f"Errore: {e}")
+            else:
+                st.info("Non è attivo, impossibile resettare.")
+
+        # OPZIONE 2: ANNULLAMENTO DEFINITIVO (Certificato errato/rovinato)
+        with col_void:
+            if st.button("🗑️ Annulla Certificato (Definitivo)", type="primary", help="Imposta lo stato su ANNULLATO. Il codice non sarà più utilizzabile."):
+                try:
+                    supabase.table("certificati").update({
+                        "stato": "ANNULLATO",
+                        "data_uso": datetime.now().isoformat(),
+                        "note": "Annullato dalla stazione"
+                    }).eq("code", cc['code']).execute()
+                    st.error("🚫 Certificato invalidato definitivamente.")
+                    st.session_state.cancel_cert = None
                     time.sleep(1.5)
                     st.rerun()
+                except Exception as e: st.error(f"Errore: {e}")
 
 st.markdown("</div>", unsafe_allow_html=True)
