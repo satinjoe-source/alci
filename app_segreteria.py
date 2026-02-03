@@ -449,7 +449,7 @@ st.subheader("📡 Anomalie GPS (Tentativi fuori zona)")
 try:
     # Recupera anomalie
     res_anom = supabase.table("anomalie").select("*").order("data", desc=True).limit(50).execute()
-     df_anom = pd.DataFrame(res_anom.data)
+    df_anom = pd.DataFrame(res_anom.data)
     if not df_anom.empty:
         df_anom['data'] = pd.to_datetime(df_anom['data']).dt.strftime('%d/%m/%Y %H:%M')
         st.dataframe(df_anom[["data", "stazione_id", "messaggio"]], use_container_width=True)
