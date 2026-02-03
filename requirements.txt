@@ -6,3 +6,5 @@ pyzbar
 supabase
 geopy
 streamlit-js-eval
+opencv-python-headless
+numpy
