@@ -212,7 +212,7 @@ def attiva_certificato(code, targa, note):
         st.error(f"Errore DB: {e}")
         return False
 
-# --- LOGICA DI SCANSIONE QR ---
+# --- LOGICA DI SCANSIONE QR (Solo FILE) ---
 def processa_immagine_qr(img_file):
     if not img_file: return
     
@@ -242,6 +242,7 @@ def processa_immagine_qr(img_file):
 
 with tab1:
     st.markdown("### Scansiona il QR Code")
+    st.info("Carica una foto del QR code presente sul certificato.")
     
     if not PYZBAR_AVAILABLE:
         st.error("""
@@ -252,18 +253,9 @@ with tab1:
         3. Riavvia l'app.
         """)
     else:
-        # Opzione 1: Fotocamera diretta (migliore per mobile)
-        img_camera = st.camera_input("📸 Scatta foto al QR")
-        if img_camera:
-            processa_immagine_qr(img_camera)
-            
-        st.markdown("---")
-        
-        # Opzione 2: Caricamento file
-        st.markdown("Oppure carica una foto:")
-        uploaded_file = st.file_uploader("Upload immagine", type=["jpg","png"], key="qr_up")
+        uploaded_file = st.file_uploader("📸 Carica foto QR", type=["jpg","png","jpeg"], key="qr_up")
         if uploaded_file:
-            st.image(uploaded_file, width=150)
+            st.image(uploaded_file, width=200)
             processa_immagine_qr(uploaded_file)
 
 with tab2:
