@@ -70,7 +70,7 @@ st.markdown("""
 # --- SIDEBAR ---
 with st.sidebar:
     # Creiamo 3 colonne: spazi laterali (1) e spazio centrale (2)
-    col_sx, col_center, col_dx = st.columns([1, 2, 1])
+    col_sx, col_center, col_dx = st.columns([0.5, 3, 0.5])
     
     with col_center:
         try:
@@ -81,11 +81,11 @@ with st.sidebar:
         
     st.markdown("""
         <div style='text-align:center; padding:10px 0;'>
-            <div style='font-size:24px; font-weight:800; 
+            <div style='font-size:24px; font-weight:400; 
                         background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
                         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
                         letter-spacing: 2px;'>A.L.C.I.</div>
-            <div style='color:#6c757d; font-size:18px; margin-top:4px; font-weight:400;'>SEGRETERIA</div>
+            <div style='color:#6c757d; font-size:18px; margin-top:4px; font-weight:300;'>SEGRETERIA</div>
         </div>
     """, unsafe_allow_html=True)
     
