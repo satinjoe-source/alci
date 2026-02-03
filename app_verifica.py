@@ -2,6 +2,7 @@ import streamlit as st
 from supabase import create_client, Client
 from datetime import datetime
 import time
+import base64
 
 st.set_page_config(page_title="A.L.C.I. Verifica", page_icon="🔍", layout="centered")
 
@@ -17,12 +18,24 @@ def init_supabase():
 
 supabase: Client = init_supabase()
 
+# --- FUNZIONE PER LEGGERE L'IMMAGINE IN HTML ---
+def get_img_as_base64(file):
+    try:
+        with open(file, "rb") as f:
+            data = f.read()
+        return base64.b64encode(data).decode()
+    except:
+        return None
+
+# Convertiamo il logo per l'HTML
+logo_b64 = get_img_as_base64("logo alci.jpg")
+
 # --- CSS STYLES ---
 st.markdown("""
 <style>
     .stApp { background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%); }
     
-    /* Stili per le card dei risultati */
+    /* Stili Card */
     .verify-card { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.12); max-width: 700px; margin: 30px auto; }
     .result-title { color: #16a34a; font-size: 28px; font-weight: 700; margin: 0 0 30px 0; text-align: center; }
     .info-item { margin: 20px 0; padding-bottom: 20px; border-bottom: 1px solid #e5e7eb; }
@@ -30,7 +43,7 @@ st.markdown("""
     .info-label { color: #6b7280; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
     .info-value { color: #1e293b; font-size: 18px; font-weight: 500; }
     
-    /* Stili Messaggi Errore/Warning */
+    /* Stili Messaggi */
     .error-title { color: #dc2626; font-size: 28px; font-weight: 700; margin: 0 0 20px 0; text-align: center; }
     .error-text { color: #7f1d1d; line-height: 1.8; text-align: center; font-size: 16px; }
     .warning-title { color: #d97706; font-size: 28px; font-weight: 700; margin: 0 0 20px 0; text-align: center; }
@@ -38,32 +51,61 @@ st.markdown("""
     .alert-old { background: #fef2f2; border-left: 4px solid #dc2626; padding: 16px; border-radius: 8px; margin-top: 24px; }
     .alert-old-title { color: #dc2626; margin: 0 0 8px 0; font-weight: 700; font-size: 16px; }
     .alert-old-text { color: #7f1d1d; margin: 0; font-size: 14px; }
-    
-    /* Allineamento verticale colonne */
-    [data-testid="column"] {
+
+    /* HEADER PERSONALIZZATO (FLEXBOX) */
+    .header-container {
         display: flex;
         align-items: center;
+        justify-content: center;
+        gap: 15px; /* Spazio tra logo e testo */
+        padding: 20px 0;
+    }
+    .header-logo {
+        width: 80px; /* Dimensione fissa logo */
+        height: auto;
+        flex-shrink: 0; /* Impedisce al logo di schiacciarsi */
+    }
+    .header-text {
+        display: flex;
+        flex-direction: column;
+    }
+    .header-title {
+        color: #2563eb; 
+        font-size: 38px; /* Un po' più piccolo per stare nel mobile */
+        font-weight: 900; 
+        letter-spacing: 2px; 
+        line-height: 1;
+        margin: 0;
+    }
+    .header-subtitle {
+        color: #64748b; 
+        font-size: 14px; 
+        font-weight: 500;
+        margin-top: 5px;
+        line-height: 1.2;
+    }
+    
+    /* Media query per schermi molto piccoli */
+    @media (max-width: 400px) {
+        .header-title { font-size: 32px; }
+        .header-logo { width: 60px; }
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- INTESTAZIONE LOGO + TITOLO (AFFIANCATI) ---
-# Usiamo le colonne: piccola per logo (0.8), grande per testo (3.2)
-c_logo, c_text = st.columns([0.8, 3.2])
+# --- INTESTAZIONE HTML (FORZA RIGA UNICA) ---
+# Se l'immagine c'è, la mostriamo, altrimenti mostriamo solo testo
+img_tag = f'<img src="data:image/jpeg;base64,{logo_b64}" class="header-logo">' if logo_b64 else ''
 
-with c_logo:
-    try:
-        # Logo piccolo (90px)
-        st.image("logo alci.jpg", width=90)
-    except: pass
-
-with c_text:
-    st.markdown("""
-        <div style='margin-left: 10px;'>
-            <div style='color: #2563eb; font-size: 42px; font-weight: 900; letter-spacing: 3px; line-height: 1.2;'>🔍 A.L.C.I.</div>
-            <div style='color: #64748b; font-size: 16px; font-weight: 500;'>Verifica Certificato Lavaggio Cisterna</div>
-        </div>
-    """, unsafe_allow_html=True)
+st.markdown(f"""
+<div class="header-container">
+    {img_tag}
+    <div class="header-text">
+        <div class="header-title">A.L.C.I.</div>
+        <div class="header-subtitle">Verifica Certificato<br>Lavaggio Cisterna</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # --- LOGICA DI VERIFICA ---
 query_params = st.query_params
