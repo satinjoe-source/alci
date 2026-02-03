@@ -71,7 +71,7 @@ st.markdown("""
 with st.sidebar:
     # AGGIUNTA LOGO
     try:
-        st.image("logo alci.jpg", use_container_width=True)
+        st.image("logo alci.jpg", width=150)
     except:
         st.warning("Logo non trovato") # Fallback se il file non c'è
         
