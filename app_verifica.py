@@ -41,13 +41,14 @@ st.markdown("""
     .error-text { color: #7f1d1d; line-height: 1.8; text-align: center; font-size: 16px; }
     .warning-title { color: #d97706; font-size: 28px; font-weight: 700; text-align: center; margin-bottom: 20px; }
     .warning-text { color: #78350f; line-height: 1.8; text-align: center; font-size: 16px; }
+    .alert-old { background: #fef2f2; border-left: 4px solid #dc2626; padding: 16px; border-radius: 8px; margin-top: 24px; }
+    .alert-old-title { color: #dc2626; margin: 0 0 8px 0; font-weight: 700; font-size: 16px; }
+    .alert-old-text { color: #7f1d1d; margin: 0; font-size: 14px; }
     .header-container { display: flex; align-items: center; justify-content: center; gap: 15px; padding: 20px 0; }
     .header-logo { width: 80px; height: auto; flex-shrink: 0; }
     .header-text { display: flex; flex-direction: column; }
     .header-title { color: #2563eb; font-size: 38px; font-weight: 900; letter-spacing: 2px; line-height: 1; margin: 0; }
     .header-subtitle { color: #64748b; font-size: 14px; font-weight: 500; margin-top: 5px; line-height: 1.2; }
-    
-    /* Stile per l'input manuale */
     .manual-input-box { background: white; padding: 20px; border-radius: 15px; margin: 20px auto; max-width: 500px; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
 </style>
 """, unsafe_allow_html=True)
@@ -68,7 +69,6 @@ st.markdown(f"""
 query_params = st.query_params
 code_url = query_params.get("c", "")
 
-# Selettore modalità: Se c'è URL usa quello, altrimenti mostra input manuale
 code_to_verify = None
 
 if code_url:
@@ -93,7 +93,6 @@ if code_to_verify:
         time.sleep(0.5)
         
         try:
-            # Pulisci input
             code_clean = code_to_verify.strip().upper()
             
             # Query
@@ -133,11 +132,23 @@ if code_to_verify:
                 st.markdown(html_warning, unsafe_allow_html=True)
             
             elif cert["stato"] == "ATTIVO":
-                try: data_att = datetime.fromisoformat(cert["data_uso"].replace('Z', ''))
-                except: data_att = datetime.now()
+                # --- FIX ERRORE TIMEZONE ---
+                try: 
+                    # 1. Parsiamo la data ISO
+                    data_att = datetime.fromisoformat(cert["data_uso"].replace('Z', '+00:00'))
+                except: 
+                    data_att = datetime.now() # Fallback in caso estremo
                 
+                # 2. Convertiamo per visualizzazione
                 data_att_str = data_att.strftime("%d/%m/%Y alle ore %H:%M")
-                giorni_fa = (datetime.now() - data_att).days
+                
+                # 3. FIX CRUCIALE: Rimuoviamo la timezone da entrambi prima di sottrarre
+                now_naive = datetime.now().replace(tzinfo=None)
+                data_att_naive = data_att.replace(tzinfo=None)
+                
+                giorni_fa = (now_naive - data_att_naive).days
+                # ---------------------------
+
                 targa_info = cert['targa'] if cert['targa'] else 'Non specificata'
                 
                 alert_html = ""
