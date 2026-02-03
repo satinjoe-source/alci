@@ -69,11 +69,15 @@ st.markdown("""
 
 # --- SIDEBAR ---
 with st.sidebar:
-    # AGGIUNTA LOGO
-    try:
-        st.image("logo alci.jpg", width=150)
-    except:
-        st.warning("Logo non trovato") # Fallback se il file non c'è
+    # Creiamo 3 colonne: spazi laterali (1) e spazio centrale (2)
+    col_sx, col_center, col_dx = st.columns([1, 2, 1])
+    
+    with col_center:
+        try:
+            # Larghezza consigliata per la sidebar: 130-150px
+            st.image("logo alci.jpg", width=250) 
+        except: 
+            st.warning("No Logo")
         
     st.markdown("""
         <div style='text-align:center; padding:10px 0;'>
