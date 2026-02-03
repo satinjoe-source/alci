@@ -8,17 +8,21 @@ st.set_page_config(page_title="A.L.C.I. Verifica", page_icon="🔍", layout="cen
 # --- SUPABASE CONNECTION ---
 @st.cache_resource
 def init_supabase():
-    url = st.secrets["supabase"]["url"]
-    key = st.secrets["supabase"]["key"]
-    return create_client(url, key)
+    try:
+        url = st.secrets["supabase"]["url"]
+        key = st.secrets["supabase"]["key"]
+        return create_client(url, key)
+    except Exception as e:
+        return None
 
 supabase: Client = init_supabase()
 
+# --- CSS STYLES ---
 st.markdown("""
 <style>
     .stApp { background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%); }
-    .logo-container { text-align: center; margin: 40px 0 20px 0; }
-    .logo-title { color: #2563eb; font-size: 56px; font-weight: 900; letter-spacing: 6px; margin-bottom: 8px; }
+    .logo-container { text-align: center; margin: 20px 0 20px 0; }
+    .logo-title { color: #2563eb; font-size: 48px; font-weight: 900; letter-spacing: 4px; margin-bottom: 8px; }
     .subtitle { color: #64748b; font-size: 18px; margin-bottom: 0; }
     .verify-card { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.12); max-width: 700px; margin: 30px auto; }
     .result-title { color: #16a34a; font-size: 28px; font-weight: 700; margin: 0 0 30px 0; text-align: center; }
@@ -33,8 +37,21 @@ st.markdown("""
     .alert-old { background: #fef2f2; border-left: 4px solid #dc2626; padding: 16px; border-radius: 8px; margin-top: 24px; }
     .alert-old-title { color: #dc2626; margin: 0 0 8px 0; font-weight: 700; font-size: 16px; }
     .alert-old-text { color: #7f1d1d; margin: 0; font-size: 14px; }
+    
+    /* Centra immagine se usata nelle colonne */
+    div[data-testid="stImage"] {
+        display: flex;
+        justify-content: center;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# --- LOGO CENTRATO ---
+c1, c2, c3 = st.columns([1, 1, 1])
+with c2:
+    try:
+        st.image("logo alci.jpg", width=180)
+    except: pass
 
 st.markdown("""
 <div class='logo-container'>
@@ -47,6 +64,10 @@ query_params = st.query_params
 code_param = query_params.get("c", "")
 
 if code_param:
+    if not supabase:
+         st.error("Errore connessione database")
+         st.stop()
+
     with st.spinner("🔍 Verifica in corso..."):
         time.sleep(0.5)
         
@@ -94,12 +115,21 @@ if code_param:
                 try:
                     data_att = datetime.fromisoformat(cert["data_uso"].replace('Z', '+00:00'))
                 except:
-                    data_att = datetime.fromisoformat(cert["data_uso"])
+                    try:
+                        data_att = datetime.fromisoformat(cert["data_uso"])
+                    except:
+                        data_att = datetime.now() # Fallback
 
                 data_att_str = data_att.strftime("%d/%m/%Y alle ore %H:%M")
                 
                 # Calcolo giorni (rimuovendo tz info per confronto semplice)
-                giorni_fa = (datetime.now().replace(tzinfo=None) - data_att.replace(tzinfo=None)).days
+                try:
+                    now_naive = datetime.now().replace(tzinfo=None)
+                    data_att_naive = data_att.replace(tzinfo=None)
+                    giorni_fa = (now_naive - data_att_naive).days
+                except:
+                    giorni_fa = 0
+
                 targa_info = cert['targa'] if cert['targa'] else 'Non specificata'
                 
                 alert_html = ""
