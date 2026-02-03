@@ -5,6 +5,7 @@ from datetime import datetime
 from PIL import Image
 import time
 
+# Tentativo di importazione pyzbar
 try:
     from pyzbar import pyzbar
     PYZBAR_AVAILABLE = True
@@ -26,18 +27,18 @@ def init_supabase():
 supabase = init_supabase()
 
 if not supabase:
-    st.error("❌ Errore di connessione a Supabase.")
+    st.error("❌ Errore di connessione a Supabase. Controlla i secrets.")
     st.stop()
 
 def format_number(n):
     return f"{n:,}".replace(",", ".")
 
-# --- CSS STYLES (AGGIORNATI) ---
+# --- CSS STYLES ---
 st.markdown("""
 <style>
     .stApp { background-color: #f5f7fa; }
     
-    /* FIX VISIBILITÀ INPUT */
+    /* FIX VISIBILITÀ INPUT E SELECTBOX */
     .stSelectbox div[data-baseweb="select"] > div, 
     .stTextInput input, 
     .stTextArea textarea {
@@ -70,10 +71,18 @@ if "stazione_logged" not in st.session_state:
 # --- LOGIN SCREEN ---
 if not st.session_state.stazione_logged:
     st.markdown("<div class='main-container'>", unsafe_allow_html=True)
+    
+    # LOGO CENTRATO NEL LOGIN
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        try:
+            st.image("logo alci.jpg", width=150)
+        except: pass
+
     st.markdown("""
-        <div class='header-box'>
-            <h1>🏭 A.L.C.I. - Attivazione Certificati</h1>
-            <p>Sistema di gestione lavaggio cisterne</p>
+        <div class='header-box' style='text-align:center'>
+            <h1>🏭 A.L.C.I. - Attivazione</h1>
+            <p>Sistema lavaggio cisterne</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -123,12 +132,20 @@ st.markdown("<div class='main-container'>", unsafe_allow_html=True)
 
 col1, col2 = st.columns([4, 1])
 with col1:
-    st.markdown(f"""
-        <div class='header-box'>
-            <h1>🏭 {staz['ragione_sociale']}</h1>
-            <p>{staz['citta']}</p>
-        </div>
-    """, unsafe_allow_html=True)
+    # LOGO E TITOLO STAZIONE
+    c_logo, c_text = st.columns([0.8, 3.2])
+    with c_logo:
+        try:
+            st.image("logo alci.jpg", width=80)
+        except: pass
+    with c_text:
+        st.markdown(f"""
+            <div class='header-box' style='margin-bottom:0; padding:15px'>
+                <h1 style='font-size:20px'>🏭 {staz['ragione_sociale']}</h1>
+                <p>{staz['citta']}</p>
+            </div>
+        """, unsafe_allow_html=True)
+
 with col2:
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🚪 Esci"):
@@ -195,31 +212,59 @@ def attiva_certificato(code, targa, note):
         st.error(f"Errore DB: {e}")
         return False
 
+# --- LOGICA DI SCANSIONE QR ---
+def processa_immagine_qr(img_file):
+    if not img_file: return
+    
+    image = Image.open(img_file)
+    decoded = pyzbar.decode(image)
+    
+    if decoded:
+        qr_data = decoded[0].data.decode('utf-8')
+        if "?c=" in qr_data:
+            code = qr_data.split("?c=")[1].split("&")[0]
+            cert = verifica_e_mostra_cert(code)
+            
+            if cert:
+                st.markdown(f"<div class='success-alert'><h3>✅ Rilevato: {cert['code']}</h3></div>", unsafe_allow_html=True)
+                with st.form(f"attiva_qr_{cert['code']}"):
+                    targa = st.text_input("🚛 Targa", max_chars=12)
+                    note = st.text_area("Note", max_chars=200)
+                    if st.form_submit_button("🔓 ATTIVA ORA", type="primary"):
+                        if attiva_certificato(cert['code'], targa, note):
+                            st.success(f"✅ Attivato!")
+                            time.sleep(1)
+                            st.rerun()
+        else:
+            st.error("QR Code non valido per A.L.C.I.")
+    else:
+        st.warning("Nessun QR code rilevato nella foto.")
+
 with tab1:
     st.markdown("### Scansiona il QR Code")
+    
     if not PYZBAR_AVAILABLE:
-        st.warning("⚠️ Libreria pyzbar non trovata. Usa l'inserimento manuale.")
+        st.error("""
+        ❌ **Libreria di sistema mancante.**
+        Per far funzionare il lettore QR su Streamlit Cloud:
+        1. Crea un file chiamato `packages.txt`
+        2. Scrivici dentro: `libzbar0`
+        3. Riavvia l'app.
+        """)
     else:
-        uploaded_file = st.file_uploader("📸 Carica foto QR", type=["jpg","png"], key="qr_up")
+        # Opzione 1: Fotocamera diretta (migliore per mobile)
+        img_camera = st.camera_input("📸 Scatta foto al QR")
+        if img_camera:
+            processa_immagine_qr(img_camera)
+            
+        st.markdown("---")
+        
+        # Opzione 2: Caricamento file
+        st.markdown("Oppure carica una foto:")
+        uploaded_file = st.file_uploader("Upload immagine", type=["jpg","png"], key="qr_up")
         if uploaded_file:
-            image = Image.open(uploaded_file)
-            st.image(image, width=200)
-            decoded = pyzbar.decode(image)
-            if decoded:
-                qr_data = decoded[0].data.decode('utf-8')
-                if "?c=" in qr_data:
-                    code = qr_data.split("?c=")[1].split("&")[0]
-                    cert = verifica_e_mostra_cert(code)
-                    if cert:
-                        st.markdown(f"<div class='success-alert'><h3>✅ Rilevato: {cert['code']}</h3></div>", unsafe_allow_html=True)
-                        with st.form("attiva_qr"):
-                            targa = st.text_input("🚛 Targa", max_chars=12)
-                            note = st.text_area("Note", max_chars=200)
-                            if st.form_submit_button("🔓 ATTIVA ORA", type="primary"):
-                                if attiva_certificato(cert['code'], targa, note):
-                                    st.success(f"✅ Attivato!")
-                                    time.sleep(1)
-                                    st.rerun()
+            st.image(uploaded_file, width=150)
+            processa_immagine_qr(uploaded_file)
 
 with tab2:
     st.markdown("### Inserimento Manuale")
