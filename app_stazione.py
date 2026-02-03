@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 from datetime import datetime
-from PIL import Image
+from PIL import Image, ImageEnhance
 import time
 from streamlit_js_eval import get_geolocation
 from geopy.distance import geodesic
@@ -115,7 +115,7 @@ if loc:
         user_coords = (loc['coords']['latitude'], loc['coords']['longitude'])
         station_coords = (staz['gps_lat'], staz['gps_lon'])
         
-        # Se la stazione non ha coordinate, saltiamo il controllo (o blocchiamo, a scelta)
+        # Se la stazione non ha coordinate, saltiamo il controllo
         if station_coords[0] and station_coords[1]:
             distanza_mt = geodesic(user_coords, station_coords).meters
             limit = staz.get('raggio_attivazione', 200) # Default 200 metri
@@ -125,7 +125,7 @@ if loc:
             else:
                 gps_status = "ERROR"
         else:
-            gps_status = "OK" # Coordinate stazione mancanti, permettiamo (o mettere ERROR per obbligare)
+            gps_status = "OK" 
             distanza_mt = 0
     except:
         gps_status = "WAITING"
@@ -180,14 +180,14 @@ tab1, tab2 = st.tabs(["📸 Scansiona QR", "🔢 Manuale"])
 def verifica_e_mostra_cert(code):
     resp = supabase.table("certificati").select("*").eq("code", code).execute()
     if not resp.data:
-        st.error("Certificato non trovato")
+        st.error("❌ Certificato non trovato nel database")
         return None
     cert = resp.data[0]
     if cert["stazione_id"] != staz["stazione_id"]:
-        st.error("Certificato di un'altra stazione!")
+        st.error(f"❌ Certificato assegnato ad altra stazione ({cert['stazione_id']})")
         return None
     if cert["stato"] == "ATTIVO":
-        st.warning(f"Già attivato! Targa: {cert['targa']}")
+        st.warning(f"⚠️ Già attivato! Targa: {cert['targa']}")
         return None
     return cert
 
@@ -195,7 +195,6 @@ def attiva_certificato(code, targa, note):
     # BLOCCO SE GPS ERROR
     if gps_status == "ERROR":
         st.error("⛔ Attivazione bloccata: Sei troppo lontano dalla stazione.")
-        # REGISTRA ANOMALIA
         try:
             supabase.table("anomalie").insert({
                 "stazione_id": staz['stazione_id'],
@@ -206,10 +205,11 @@ def attiva_certificato(code, targa, note):
         except: pass
         return False
     
-    # Se GPS mancante ma richiesto (opzionale: bloccare anche se loc è None)
-    if loc is None and staz.get('gps_lat') is not None:
-         st.warning("⚠️ GPS non rilevato. Riprova tra poco.")
-         return False
+    # Se GPS non ancora rilevato, avvisa ma (in questo codice) non blocca del tutto
+    # Se vuoi bloccare rigorosamente se GPS è nullo, decommenta le righe sotto:
+    # if loc is None and staz.get('gps_lat') is not None:
+    #      st.error("⚠️ GPS non ancora rilevato. Attendi qualche secondo.")
+    #      return False
 
     try:
         supabase.table("certificati").update({
@@ -223,45 +223,61 @@ def attiva_certificato(code, targa, note):
         st.error(f"Errore DB: {e}")
         return False
 
-# --- LOGICA ATTIVAZIONE ---
+# --- LOGICA ATTIVAZIONE (TAB 1) ---
 with tab1:
     if not PYZBAR_AVAILABLE:
         st.error("Libreria pyzbar non disponibile.")
     else:
         uploaded_file = st.file_uploader("Carica foto QR", type=["jpg","png"], key="qr_up")
+        
         if uploaded_file:
+            # 1. Mostra immagine
             img = Image.open(uploaded_file)
+            st.image(img, width=200, caption="Foto Caricata")
+            
+            # 2. Decodifica
             decoded = pyzbar.decode(img)
+            
+            # 2b. Tentativo extra con contrasto/BN se fallisce
+            if not decoded:
+                gray = img.convert('L')
+                decoded = pyzbar.decode(gray)
+
             if decoded:
                 qr_d = decoded[0].data.decode('utf-8')
                 if "?c=" in qr_d:
                     code = qr_d.split("?c=")[1].split("&")[0]
                     cert = verifica_e_mostra_cert(code)
                     if cert:
-                        st.success(f"Rilevato: {cert['code']}")
+                        st.success(f"✅ Rilevato: {cert['code']}")
                         with st.form(f"f_{cert['code']}"):
-                            t = st.text_input("Targa")
-                            n = st.text_input("Note")
-                            if st.form_submit_button("ATTIVA"):
+                            t = st.text_input("Targa Veicolo")
+                            n = st.text_input("Note (Opzionale)")
+                            if st.form_submit_button("🔓 ATTIVA ORA", type="primary"):
                                 if attiva_certificato(cert['code'], t, n):
-                                    st.success("Fatto!")
+                                    st.success("✅ Attivazione riuscita!")
                                     time.sleep(1)
                                     st.rerun()
+                else:
+                    st.error("QR Code non valido (Formato errato)")
+            else:
+                st.error("❌ Nessun QR Code rilevato nella foto. Prova a scattare da più vicino o con più luce.")
 
+# --- LOGICA MANUALE (TAB 2) ---
 with tab2:
-    ci = st.text_input("Codice Manuale")
+    ci = st.text_input("Inserisci Codice Manualmente")
     if st.button("Cerca"):
         st.session_state.man_cert = verifica_e_mostra_cert(ci.strip().upper())
     
     if "man_cert" in st.session_state and st.session_state.man_cert:
         c = st.session_state.man_cert
-        st.info(f"Certificato: {c['code']}")
+        st.info(f"Certificato Selezionato: {c['code']}")
         with st.form("f_man"):
             t = st.text_input("Targa")
             n = st.text_input("Note")
             if st.form_submit_button("ATTIVA"):
                 if attiva_certificato(c['code'], t, n):
-                    st.success("Fatto!")
+                    st.success("✅ Attivazione riuscita!")
                     st.session_state.man_cert = None
                     time.sleep(1)
                     st.rerun()
