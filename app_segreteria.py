@@ -77,11 +77,11 @@ with st.sidebar:
         
     st.markdown("""
         <div style='text-align:center; padding:10px 0;'>
-            <div style='font-size:24px; font-weight:900; 
+            <div style='font-size:24px; font-weight:600; 
                         background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
                         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
                         letter-spacing: 2px;'>A.L.C.I.</div>
-            <div style='color:#6c757d; font-size:12px; margin-top:4px; font-weight:600;'>SEGRETERIA</div>
+            <div style='color:#6c757d; font-size:18px; margin-top:4px; font-weight:600;'>SEGRETERIA</div>
         </div>
     """, unsafe_allow_html=True)
     
