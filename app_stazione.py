@@ -3,7 +3,7 @@ import pandas as pd
 from supabase import create_client, Client
 from datetime import datetime
 from PIL import Image
-import time  # <--- AGGIUNTO QUESTO IMPORT MANCANTE
+import time
 
 try:
     from pyzbar import pyzbar
@@ -26,16 +26,27 @@ def init_supabase():
 supabase = init_supabase()
 
 if not supabase:
-    st.error("❌ Errore di connessione a Supabase. Controlla i secrets.")
+    st.error("❌ Errore di connessione a Supabase.")
     st.stop()
 
 def format_number(n):
     return f"{n:,}".replace(",", ".")
 
-# --- CSS STYLES ---
+# --- CSS STYLES (AGGIORNATI) ---
 st.markdown("""
 <style>
     .stApp { background-color: #f5f7fa; }
+    
+    /* FIX VISIBILITÀ INPUT */
+    .stSelectbox div[data-baseweb="select"] > div, 
+    .stTextInput input, 
+    .stTextArea textarea {
+        background-color: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        color: #1e293b !important;
+        border-radius: 8px !important;
+    }
+
     .main-container { max-width: 800px; margin: 0 auto; padding: 20px; }
     .header-box { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 24px; border-left: 4px solid #2563eb; }
     .header-box h1 { margin: 0; font-size: 24px; color: #1e293b; font-weight: 600; }
@@ -66,7 +77,6 @@ if not st.session_state.stazione_logged:
         </div>
     """, unsafe_allow_html=True)
     
-    # Fetch stazioni da Supabase
     try:
         stazioni_resp = supabase.table("stazioni").select("stazione_id, ragione_sociale, password").eq("attiva", True).execute()
         stazioni = pd.DataFrame(stazioni_resp.data)
@@ -74,7 +84,7 @@ if not st.session_state.stazione_logged:
         stazioni = pd.DataFrame()
     
     if stazioni.empty:
-        st.error("❌ Nessuna stazione disponibile. Contattare segreteria.")
+        st.error("❌ Nessuna stazione disponibile.")
         st.stop()
     
     st.markdown("<div class='action-box'>", unsafe_allow_html=True)
@@ -100,13 +110,14 @@ if not st.session_state.stazione_logged:
     st.stop()
 
 # --- MAIN APP ---
-staz_resp = supabase.table("stazioni").select("*").eq("stazione_id", st.session_state.stazione_logged).execute()
-if not staz_resp.data:
-    st.error("Stazione non trovata")
+try:
+    staz_resp = supabase.table("stazioni").select("*").eq("stazione_id", st.session_state.stazione_logged).execute()
+    if not staz_resp.data:
+        raise Exception("Stazione non trovata")
+    staz = staz_resp.data[0]
+except:
     st.session_state.stazione_logged = None
     st.rerun()
-
-staz = staz_resp.data[0]
 
 st.markdown("<div class='main-container'>", unsafe_allow_html=True)
 
@@ -166,8 +177,7 @@ def verifica_e_mostra_cert(code):
         return None
         
     if cert["stato"] == "ATTIVO":
-        data_att = cert["data_uso"]
-        st.markdown(f"<div class='warning-alert'><h3>⚠️ Già attivato</h3><p>Data: {data_att}<br>Targa: {cert['targa']}</p></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='warning-alert'><h3>⚠️ Già attivato</h3><p>Targa: {cert['targa']}</p></div>", unsafe_allow_html=True)
         return None
         
     return cert
@@ -188,7 +198,7 @@ def attiva_certificato(code, targa, note):
 with tab1:
     st.markdown("### Scansiona il QR Code")
     if not PYZBAR_AVAILABLE:
-        st.error("❌ Libreria pyzbar non installata. Usa inserimento manuale.")
+        st.warning("⚠️ Libreria pyzbar non trovata. Usa l'inserimento manuale.")
     else:
         uploaded_file = st.file_uploader("📸 Carica foto QR", type=["jpg","png"], key="qr_up")
         if uploaded_file:
@@ -200,7 +210,6 @@ with tab1:
                 if "?c=" in qr_data:
                     code = qr_data.split("?c=")[1].split("&")[0]
                     cert = verifica_e_mostra_cert(code)
-                    
                     if cert:
                         st.markdown(f"<div class='success-alert'><h3>✅ Rilevato: {cert['code']}</h3></div>", unsafe_allow_html=True)
                         with st.form("attiva_qr"):
@@ -249,8 +258,8 @@ with tab3:
         df = pd.DataFrame(resp.data)
         if not df.empty:
             df['data_uso'] = pd.to_datetime(df['data_uso']).dt.strftime('%d/%m/%Y %H:%M')
-            df.columns = ["Codice", "Targa", "Note", "Data"]
-            df = df[["Codice", "Targa", "Data", "Note"]]
+            df = df[["code", "targa", "data_uso", "note"]]
+            df.columns = ["Codice", "Targa", "Data", "Note"]
             st.dataframe(df, use_container_width=True, hide_index=True)
         else:
             st.info("Nessuno storico disponibile")
