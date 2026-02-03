@@ -444,21 +444,19 @@ elif page == "🔍 QR Code":
             except Exception as e: st.error(f"Errore: {e}")
 
 # --- ALERT SOSPETTI ---
-elif page == "🚨 Alert Sospetti":
-    st.markdown("<div class='main-header'><h1>🚨 Certificati Sospetti</h1></div>", unsafe_allow_html=True)
+st.markdown("---")
+    st.subheader("📡 Anomalie GPS (Tentativi fuori zona)")
     try:
-        res = supabase.table("certificati").select("*").eq("stato", "ATTIVO").order("data_uso", desc=True).limit(1000).execute()
-        df = pd.DataFrame(res.data)
-        if not df.empty:
-            df['data_uso'] = pd.to_datetime(df['data_uso'])
-            now = pd.Timestamp.now(tz=df['data_uso'].dt.tz) if df['data_uso'].dt.tz else pd.Timestamp.now()
-            old = df[df['data_uso'] < now - timedelta(days=7)]
-            if not old.empty:
-                st.warning(f"⚠️ {len(old)} certificati attivati da > 7 giorni.")
-                st.dataframe(old[["code", "stazione_id", "data_uso", "targa"]], use_container_width=True)
-            else: st.success("✅ Nessuna anomalia.")
-        else: st.info("Nessun dato.")
-    except Exception as e: st.error(str(e))
+        # Recupera anomalie
+        res_anom = supabase.table("anomalie").select("*").order("data", desc=True).limit(50).execute()
+        df_anom = pd.DataFrame(res_anom.data)
+        if not df_anom.empty:
+            df_anom['data'] = pd.to_datetime(df_anom['data']).dt.strftime('%d/%m/%Y %H:%M')
+            st.dataframe(df_anom[["data", "stazione_id", "messaggio"]], use_container_width=True)
+        else:
+            st.info("Nessuna anomalia GPS registrata.")
+    except Exception as e:
+        st.error(f"Errore caricamento anomalie: {e}")
 
 # --- DIAGNOSTICA ---
 elif page == "🔧 Diagnostica DB":
