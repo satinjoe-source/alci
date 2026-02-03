@@ -131,150 +131,119 @@ if page == "📊 Dashboard":
         except:
             tot, gen, att_oggi, att_mese = 0, 0, 0, 0
 
+    # KPI AGGREGATI (Privacy Safe)
     st.markdown(f"""
         <div class='kpi-grid'>
             <div class='kpi-card'><div class='kpi-label'>Emessi Totali</div><div class='kpi-value'>{format_number(tot)}</div></div>
-            <div class='kpi-card'><div class='kpi-label'>Da Attivare</div><div class='kpi-value'>{format_number(gen)}</div></div>
+            <div class='kpi-card'><div class='kpi-label'>Da Attivare (Totale Rete)</div><div class='kpi-value'>{format_number(gen)}</div></div>
             <div class='kpi-card'><div class='kpi-label'>Attivati Oggi</div><div class='kpi-value' style='color:green'>{format_number(att_oggi)}</div></div>
             <div class='kpi-card'><div class='kpi-label'>Mese Corrente</div><div class='kpi-value' style='color:blue'>{format_number(att_mese)}</div></div>
         </div>
     """, unsafe_allow_html=True)
     
-    st.subheader("Riepilogo Stazioni")
+    # RIEPILOGO RETE (Senza dettaglio scorte per stazione)
+    st.subheader("Riepilogo Rete")
     try:
-        staz_res = supabase.table("stazioni").select("stazione_id, ragione_sociale").execute()
-        stazioni = staz_res.data
-        if stazioni:
-            stats_list = []
-            prog_bar = st.progress(0)
-            for idx, s in enumerate(stazioni):
-                sid = s['stazione_id']
-                c_tot = supabase.table("certificati").select("*", count="exact", head=True).eq("stazione_id", sid).execute().count
-                c_att = supabase.table("certificati").select("*", count="exact", head=True).eq("stazione_id", sid).eq("stato", "ATTIVO").execute().count
-                stats_list.append({
-                    "Stazione": s['ragione_sociale'],
-                    "Rimanenti": c_tot - c_att,
-                    "Attivati": c_att,
-                    "Totale Assegnati": c_tot
-                })
-                prog_bar.progress((idx + 1) / len(stazioni))
-            prog_bar.empty()
-            st.dataframe(pd.DataFrame(stats_list).sort_values("Rimanenti", ascending=False), use_container_width=True, hide_index=True)
-        else:
-            st.info("Nessuna stazione configurata.")
-    except Exception as e:
-        st.error(f"Errore: {e}")
+        # Contiamo solo quante stazioni sono attive
+        count_staz = supabase.table("stazioni").select("*", count="exact", head=True).eq("attiva", True).execute().count
+        
+        st.markdown(f"""
+        <div style='background-color: white; padding: 20px; border-radius: 10px; border: 1px solid #e0e0e0; margin-top: 10px;'>
+            <h4 style='color: #2563eb; margin: 0 0 10px 0;'>🏢 Rete Stazioni A.L.C.I.</h4>
+            <p style='font-size: 18px; color: #1e293b;'>
+                Il network è attualmente composto da <strong>{count_staz}</strong> stazioni di lavaggio operative.
+            </p>
+            <p style='color: #64748b; font-size: 13px; font-style: italic; margin-top: 15px;'>
+                🔒 Nota Privacy: Il dettaglio delle giacenze per singola stazione è oscurato. 
+                I dati visualizzati nei riquadri in alto rappresentano i totali aggregati dell'intera associazione.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
-# --- GESTIONE STAZIONI (NUOVA VERSIONE COMPLETA) ---
+    except Exception as e:
+        st.error(f"Errore nel recupero dati rete: {e}")
+
+# --- GESTIONE STAZIONI ---
 elif page == "🏭 Gestione Stazioni":
     st.markdown("<div class='main-header'><h1>🏭 Gestione Stazioni</h1></div>", unsafe_allow_html=True)
     
-    # Tabs per organizzare meglio
     tab_list, tab_add, tab_edit = st.tabs(["📋 Elenco Stazioni", "➕ Aggiungi Nuova", "✏️ Modifica/Elimina"])
 
-    # 1. ELENCO
     with tab_list:
         try:
             res = supabase.table("stazioni").select("*").order("ragione_sociale").execute()
             df = pd.DataFrame(res.data)
             if not df.empty:
-                # Riordiniamo le colonne per leggibilità
-                cols = ["stazione_id", "ragione_sociale", "citta", "email", "password", "gps_lat", "gps_lon", "attiva"]
-                # Filtriamo solo quelle che esistono nel df (per evitare errori se mancano colonne)
+                cols = ["stazione_id", "ragione_sociale", "citta", "email", "attiva"]
                 cols = [c for c in cols if c in df.columns]
                 st.dataframe(df[cols], use_container_width=True, hide_index=True)
             else:
                 st.info("Nessuna stazione presente.")
         except Exception as e:
-            st.error(f"Errore caricamento elenco: {e}")
+            st.error(f"Errore: {e}")
 
-    # 2. AGGIUNGI NUOVA
     with tab_add:
         st.subheader("Inserisci Nuova Stazione")
-        
-        # Inizializza session state per coordinate se non esiste
         if "new_lat" not in st.session_state: st.session_state.new_lat = 0.0
         if "new_lon" not in st.session_state: st.session_state.new_lon = 0.0
 
         with st.container(border=True):
             col_a, col_b = st.columns(2)
-            new_id = col_a.text_input("ID Stazione (es. MATRA02)", help="Codice univoco interno").upper().strip()
+            new_id = col_a.text_input("ID Stazione (es. MATRA02)").upper().strip()
             new_name = col_b.text_input("Ragione Sociale")
             
             col_c, col_d = st.columns(2)
-            new_email = col_c.text_input("Email Utente", help="Email per login o comunicazioni")
+            new_email = col_c.text_input("Email Utente")
             new_pass = col_d.text_input("Password App", value="lavaggio123")
             
             new_city = st.text_input("Città / Indirizzo")
             
             st.markdown("---")
             st.markdown("###### 📍 Coordinate GPS")
-            
-            # Calcolatore GPS
             c_cal, c_res = st.columns([3, 1])
-            addr_to_calc = c_cal.text_input("Indirizzo completo per calcolo GPS", placeholder="Via Roma 1, Milano, Italia")
-            if c_res.button("📍 Trova Coordinate", key="btn_calc_new"):
+            addr_to_calc = c_cal.text_input("Indirizzo per calcolo GPS")
+            if c_res.button("📍 Trova", key="btn_calc_new"):
                 lat, lon = get_coordinates(addr_to_calc)
                 if lat:
                     st.session_state.new_lat = lat
                     st.session_state.new_lon = lon
-                    st.success("Coordinate trovate!")
-                else:
-                    st.error("Indirizzo non trovato.")
+                    st.success("Trovato!")
+                else: st.error("Non trovato.")
 
-            # Campi Lat/Lon (prendono valore da session_state)
             c1, c2, c3 = st.columns(3)
             lat_val = c1.number_input("Latitudine", value=st.session_state.new_lat, format="%.6f", key="input_new_lat")
             lon_val = c2.number_input("Longitudine", value=st.session_state.new_lon, format="%.6f", key="input_new_lon")
-            raggio = c3.number_input("Raggio Attivazione (metri)", value=200, step=50)
+            raggio = c3.number_input("Raggio (m)", value=200, step=50)
 
             if st.button("💾 Salva Stazione", type="primary"):
                 if new_id and new_name:
                     try:
                         data = {
-                            "stazione_id": new_id,
-                            "ragione_sociale": new_name,
-                            "citta": new_city,
-                            "email": new_email,
-                            "password": new_pass,
-                            "gps_lat": lat_val,
-                            "gps_lon": lon_val,
-                            "raggio_attivazione": raggio,
-                            "attiva": True
+                            "stazione_id": new_id, "ragione_sociale": new_name, "citta": new_city,
+                            "email": new_email, "password": new_pass, "gps_lat": lat_val,
+                            "gps_lon": lon_val, "raggio_attivazione": raggio, "attiva": True
                         }
                         supabase.table("stazioni").insert(data).execute()
-                        st.success(f"Stazione {new_name} creata con successo!")
+                        st.success(f"Stazione {new_name} creata!")
                         time.sleep(1)
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Errore inserimento: {e}. Controlla che l'ID non sia duplicato.")
-                else:
-                    st.warning("ID e Ragione Sociale sono obbligatori.")
+                    except Exception as e: st.error(f"Errore: {e}")
+                else: st.warning("Dati mancanti.")
 
-    # 3. MODIFICA / ELIMINA
     with tab_edit:
-        st.subheader("Modifica Dati Stazione")
-        
-        # Recupera stazioni per selectbox
+        st.subheader("Modifica Dati")
         try:
             staz_list = supabase.table("stazioni").select("*").order("ragione_sociale").execute().data
         except: staz_list = []
         
-        if not staz_list:
-            st.warning("Nessuna stazione da modificare.")
-        else:
+        if staz_list:
             options = {s['stazione_id']: f"{s['ragione_sociale']} ({s['stazione_id']})" for s in staz_list}
-            sel_id = st.selectbox("Seleziona Stazione da Modificare", options.keys(), format_func=lambda x: options[x])
-            
-            # Recupera dati della selezione corrente
+            sel_id = st.selectbox("Seleziona Stazione", options.keys(), format_func=lambda x: options[x])
             curr_staz = next((s for s in staz_list if s['stazione_id'] == sel_id), None)
             
             if curr_staz:
                 with st.form("edit_form"):
                     c_e1, c_e2 = st.columns(2)
-                    # ID non modificabile facilmente (è primary key), meglio lasciarlo read-only o gestire con cura
-                    st.caption(f"Stai modificando ID: **{curr_staz['stazione_id']}**")
-                    
                     edit_name = c_e1.text_input("Ragione Sociale", value=curr_staz.get('ragione_sociale', ''))
                     edit_email = c_e2.text_input("Email", value=curr_staz.get('email', ''))
                     
@@ -283,73 +252,36 @@ elif page == "🏭 Gestione Stazioni":
                     edit_pass = c_e4.text_input("Password", value=curr_staz.get('password', ''))
                     
                     st.markdown("---")
-                    st.markdown("###### 📍 Coordinate GPS")
-                    
-                    # Coordinate attuali o 0.0
-                    curr_lat = curr_staz.get('gps_lat') or 0.0
-                    curr_lon = curr_staz.get('gps_lon') or 0.0
-                    curr_rag = curr_staz.get('raggio_attivazione') or 200
-
                     ce_1, ce_2, ce_3 = st.columns(3)
-                    edit_lat = ce_1.number_input("Latitudine", value=float(curr_lat), format="%.6f")
-                    edit_lon = ce_2.number_input("Longitudine", value=float(curr_lon), format="%.6f")
-                    edit_rag = ce_3.number_input("Raggio (m)", value=int(curr_rag))
-
-                    edit_active = st.checkbox("Stazione Attiva", value=curr_staz.get('attiva', True))
+                    edit_lat = ce_1.number_input("Lat", value=float(curr_staz.get('gps_lat') or 0.0), format="%.6f")
+                    edit_lon = ce_2.number_input("Lon", value=float(curr_staz.get('gps_lon') or 0.0), format="%.6f")
+                    edit_rag = ce_3.number_input("Raggio", value=int(curr_staz.get('raggio_attivazione') or 200))
                     
-                    col_save, col_del = st.columns([1, 1])
+                    edit_active = st.checkbox("Attiva", value=curr_staz.get('attiva', True))
                     
-                    # Pulsanti azione
-                    update_btn = col_save.form_submit_button("💾 Aggiorna Dati", type="primary")
-                    delete_btn = col_del.form_submit_button("🗑️ ELIMINA STAZIONE", type="secondary")
-                    
-                    if update_btn:
+                    c_save, c_del = st.columns([1,1])
+                    if c_save.form_submit_button("💾 Aggiorna", type="primary"):
                         try:
-                            upd_data = {
-                                "ragione_sociale": edit_name,
-                                "citta": edit_city,
-                                "email": edit_email,
-                                "password": edit_pass,
-                                "gps_lat": edit_lat,
-                                "gps_lon": edit_lon,
-                                "raggio_attivazione": edit_rag,
-                                "attiva": edit_active
-                            }
-                            supabase.table("stazioni").update(upd_data).eq("stazione_id", sel_id).execute()
-                            st.success("Dati aggiornati correttamente!")
+                            upd = {"ragione_sociale": edit_name, "citta": edit_city, "email": edit_email,
+                                   "password": edit_pass, "gps_lat": edit_lat, "gps_lon": edit_lon,
+                                   "raggio_attivazione": edit_rag, "attiva": edit_active}
+                            supabase.table("stazioni").update(upd).eq("stazione_id", sel_id).execute()
+                            st.success("Aggiornato!")
                             time.sleep(1)
                             st.rerun()
-                        except Exception as e:
-                            st.error(f"Errore aggiornamento: {e}")
-
-                    if delete_btn:
-                        # Controllo integrità referenziale manuale (opzionale ma consigliato)
-                        # Se ha certificati, Supabase darà errore foreign key se non è cascade, 
-                        # ma meglio avvisare l'utente prima o gestire l'errore.
+                        except Exception as e: st.error(f"Errore: {e}")
+                        
+                    if c_del.form_submit_button("🗑️ ELIMINA", type="secondary"):
                         try:
                             supabase.table("stazioni").delete().eq("stazione_id", sel_id).execute()
-                            st.success("Stazione eliminata!")
+                            st.success("Eliminata!")
                             time.sleep(1)
                             st.rerun()
-                        except Exception as e:
-                            st.error(f"Non posso eliminare: Probabilmente ci sono certificati collegati a questa stazione. Disattivala invece di eliminarla.\nErrore tecnico: {e}")
-
-                # Calcolatore fuori dal form per non triggerare il submit del form stesso
-                with st.expander("🛠️ Calcolatore GPS per Modifica"):
-                    c_calc_e, c_res_e = st.columns([3, 1])
-                    addr_edit_calc = c_calc_e.text_input("Scrivi indirizzo", key="addr_edit")
-                    if c_res_e.button("Calcola", key="btn_calc_edit"):
-                        lat_e, lon_e = get_coordinates(addr_edit_calc)
-                        if lat_e:
-                            st.info(f"Copia questi valori nei campi sopra:\nLat: **{lat_e}**\nLon: **{lon_e}**")
-                        else:
-                            st.error("Indirizzo non trovato")
-
+                        except: st.error("Impossibile eliminare: ci sono certificati collegati.")
 
 # --- GESTIONE LOTTI ---
 elif page == "📦 Gestione Lotti":
     st.markdown("<div class='main-header'><h1>📦 Generazione Lotti</h1></div>", unsafe_allow_html=True)
-    
     try:
         stazioni = supabase.table("stazioni").select("stazione_id, ragione_sociale").eq("attiva", True).execute().data
     except: stazioni = []
@@ -360,175 +292,81 @@ elif page == "📦 Gestione Lotti":
         with st.form("new_lotto"):
             col1, col2 = st.columns(2)
             opt = {s['stazione_id']: s['ragione_sociale'] for s in stazioni}
-            sid = col1.selectbox("Seleziona Stazione", opt.keys(), format_func=lambda x: opt[x])
-            prefix = col2.text_input("Prefisso Codice", "ALCI")
+            sid = col1.selectbox("Stazione", opt.keys(), format_func=lambda x: opt[x])
+            prefix = col2.text_input("Prefisso", "ALCI")
             
             try:
                 last = supabase.table("certificati").select("code").order("code", desc=True).limit(1).execute()
-                if last.data:
-                    parts = last.data[0]['code'].split("-")
-                    last_n = int(parts[-1]) if parts[-1].isdigit() else 0
-                else: last_n = 0
+                last_n = int(last.data[0]['code'].split("-")[-1]) if last.data else 0
             except: last_n = 0
             
-            st.info(f"Ultimo numero presente: **{last_n}**")
-            
+            st.info(f"Ultimo numero: **{last_n}**")
             c3, c4 = st.columns(2)
-            start = c3.number_input("Dal numero", value=last_n+1, step=1)
-            end = c4.number_input("Al numero", value=last_n+100, step=1)
+            start = c3.number_input("Inizio", value=last_n+1)
+            end = c4.number_input("Fine", value=last_n+100)
             
-            if st.form_submit_button("🚀 Genera Lotto"):
-                qty = end - start + 1
-                if qty > 5000:
-                    st.error("Limite max 5000.")
-                else:
-                    lotto = f"LOT-{sid}-{datetime.now().strftime('%y%m%d%H%M')}"
-                    rows = [{"code": f"{prefix}-{str(i).zfill(7)}", "lotto": lotto, "stazione_id": sid} for i in range(start, end+1)]
-                    try:
-                        chunk = 1000
-                        bar = st.progress(0)
-                        for i in range(0, len(rows), chunk):
-                            supabase.table("certificati").insert(rows[i:i+chunk]).execute()
-                            bar.progress(min((i+chunk)/len(rows), 1.0))
-                        st.success(f"Generati {len(rows)} certificati per {opt[sid]}.")
-                        st.cache_data.clear()
-                    except Exception as e:
-                        st.error(f"Errore: {e}")
+            if st.form_submit_button("🚀 Genera"):
+                lotto = f"LOT-{sid}-{datetime.now().strftime('%y%m%d%H%M')}"
+                rows = [{"code": f"{prefix}-{str(i).zfill(7)}", "lotto": lotto, "stazione_id": sid} for i in range(start, end+1)]
+                try:
+                    chunk = 1000
+                    bar = st.progress(0)
+                    for i in range(0, len(rows), chunk):
+                        supabase.table("certificati").insert(rows[i:i+chunk]).execute()
+                        bar.progress(min((i+chunk)/len(rows), 1.0))
+                    st.success(f"Generati {len(rows)} certificati.")
+                except Exception as e: st.error(f"Errore: {e}")
 
 # --- QR CODE ---
 elif page == "🔍 QR Code":
-    st.markdown("<div class='main-header'><h1>🔍 Visualizzazione QR Code</h1></div>", unsafe_allow_html=True)
-    
-    st.markdown("### 1. Cerca Certificato Singolo")
-    col_s1, col_s2 = st.columns([3, 1])
-    code = col_s1.text_input("Inserisci Codice", placeholder="Es. ALCI-0001000")
-    if col_s2.button("Cerca"):
+    st.markdown("<div class='main-header'><h1>🔍 Visualizzazione QR</h1></div>", unsafe_allow_html=True)
+    code = st.text_input("Cerca Codice")
+    if st.button("Cerca"):
         res = supabase.table("certificati").select("*").eq("code", code.strip().upper()).execute()
         if res.data:
             c = res.data[0]
-            st.success(f"Trovato: {c['code']} - Stato: {c['stato']}")
             st.image(f"data:image/png;base64,{make_qr_image(c['code'])}", width=200)
-        else:
-            st.error("Non trovato")
-            
-    st.markdown("---")
-    st.markdown("### 2. Lista QR Code (Anteprima Stampa)")
-    
-    try:
-        stazioni = supabase.table("stazioni").select("stazione_id, ragione_sociale").eq("attiva", True).execute().data
-        opts = {s['stazione_id']: s['ragione_sociale'] for s in stazioni}
-    except: stazioni = []
+            st.write(f"Stato: {c['stato']}")
+        else: st.error("Non trovato")
 
-    if stazioni:
-        c1, c2 = st.columns([2, 1])
-        staz_sel = c1.selectbox("Filtra per Stazione", opts.keys(), format_func=lambda x: opts[x])
-        limit = c2.slider("Quantità", 3, 50, 6)
-            
-        if staz_sel:
-            try:
-                res_list = supabase.table("certificati").select("code, lotto, stato").eq("stazione_id", staz_sel).order("code", desc=False).limit(limit).execute()
-                certs = res_list.data
-                if certs:
-                    st.write(f"Anteprima per: **{opts[staz_sel]}**")
-                    cols = st.columns(3)
-                    for idx, cert in enumerate(certs):
-                        with cols[idx % 3]:
-                            with st.container(border=True):
-                                st.image(f"data:image/png;base64,{make_qr_image(cert['code'])}", use_container_width=True)
-                                st.markdown(f"**{cert['code']}**")
-                                if cert['stato'] == 'ATTIVO':
-                                    st.markdown("✅ <span style='color:green'>ATTIVO</span>", unsafe_allow_html=True)
-                                else:
-                                    st.markdown("📄 <span style='color:grey'>GENERATO</span>", unsafe_allow_html=True)
-                else: st.warning("Nessun certificato.")
-            except Exception as e: st.error(f"Errore: {e}")
-
-# --- ALERT SOSPETTI ---
 # --- ALERT SOSPETTI ---
 elif page == "🚨 Alert Sospetti":
     st.markdown("<div class='main-header'><h1>🚨 Alert e Anomalie</h1></div>", unsafe_allow_html=True)
     
-    # SEZIONE 1: CERTIFICATI VECCHI (> 7 GIORNI)
-    st.subheader("⚠️ Certificati attivati da molto tempo")
+    st.subheader("⚠️ Certificati vecchi (> 7 gg)")
     try:
-        # Scarichiamo gli ultimi 1000 certificati attivi
         res = supabase.table("certificati").select("*").eq("stato", "ATTIVO").order("data_uso", desc=True).limit(1000).execute()
         df = pd.DataFrame(res.data)
-        
         if not df.empty:
-            # Convertiamo la data
             df['data_uso'] = pd.to_datetime(df['data_uso'])
-            
-            # Gestione Timezone (se presente o meno)
-            if df['data_uso'].dt.tz is None:
-                now = pd.Timestamp.now()
-            else:
-                now = pd.Timestamp.now(tz=df['data_uso'].dt.tz)
-            
-            # Filtriamo quelli più vecchi di 7 giorni
-            old = df[df['data_uso'] < now - timedelta(days=7)].copy()
-            
+            now = pd.Timestamp.now(tz=df['data_uso'].dt.tz) if df['data_uso'].dt.tz else pd.Timestamp.now()
+            old = df[df['data_uso'] < now - timedelta(days=7)]
             if not old.empty:
-                st.warning(f"Attenzione: Ci sono {len(old)} certificati attivati da più di 7 giorni.")
-                # Formattiamo la data per renderla leggibile
-                old['data_uso'] = old['data_uso'].dt.strftime('%d/%m/%Y %H:%M')
                 st.dataframe(old[["code", "stazione_id", "data_uso", "targa"]], use_container_width=True)
-            else: 
-                st.success("✅ Nessun certificato attivo da più di 7 giorni.")
-        else: 
-            st.info("Nessun certificato attivo nel database.")
-            
-    except Exception as e: 
-        st.error(f"Errore durante l'analisi dei certificati: {str(e)}")
+            else: st.success("Nessun certificato vecchio.")
+    except Exception as e: st.error(str(e))
 
     st.markdown("---")
-
-    # SEZIONE 2: ANOMALIE GPS (Tentativi bloccati)
-    st.subheader("📡 Anomalie GPS (Tentativi fuori zona)")
+    st.subheader("📡 Anomalie GPS")
     try:
-        # Recupera la tabella anomalie
         res_anom = supabase.table("anomalie").select("*").order("data", desc=True).limit(50).execute()
         df_anom = pd.DataFrame(res_anom.data)
-        
         if not df_anom.empty:
-            # Formattiamo la data
-            df_anom['data'] = pd.to_datetime(df_anom['data']).dt.strftime('%d/%m/%Y %H:%M')
-            
-            # Mostriamo la tabella degli errori GPS
-            st.dataframe(
-                df_anom[["data", "stazione_id", "messaggio", "gps_rilevato"]], 
-                use_container_width=True, 
-                hide_index=True
-            )
-        else:
-            st.info("✅ Nessuna anomalia GPS registrata recentemente.")
-            
-    except Exception as e:
-        # Se la tabella anomalie non esiste ancora o c'è un errore
-        st.error(f"Errore caricamento anomalie (Hai creato la tabella 'anomalie' su Supabase?): {e}")
+            st.dataframe(df_anom[["data", "stazione_id", "messaggio"]], use_container_width=True)
+        else: st.info("Nessuna anomalia GPS.")
+    except: st.warning("Tabella anomalie non trovata.")
 
 # --- DIAGNOSTICA ---
 elif page == "🔧 Diagnostica DB":
     st.title("Diagnostica")
-    code = st.text_input("Cerca codice certificato")
-    if code:
-        res = supabase.table("certificati").select("*").eq("code", code.strip().upper()).execute()
-        if res.data:
-            st.write(res.data[0])
-            c1, c2 = st.columns(2)
-            if c1.button("Reset a GENERATO"):
-                supabase.table("certificati").update({"stato": "GENERATO", "data_uso": None, "targa": None, "note": None}).eq("code", code.strip().upper()).execute()
-                st.success("Resettato!")
-                st.rerun()
-            if c2.button("Elimina"):
-                supabase.table("certificati").delete().eq("code", code.strip().upper()).execute()
-                st.warning("Eliminato!")
-                st.rerun()
-        else: st.error("Non trovato")
+    code = st.text_input("Codice da resettare")
+    if st.button("Reset a GENERATO"):
+        supabase.table("certificati").update({"stato": "GENERATO", "data_uso": None, "targa": None}).eq("code", code).execute()
+        st.success("Fatto")
 
 # --- IMPOSTAZIONI ---
 elif page == "⚙️ Impostazioni":
     st.title("Impostazioni")
-    if st.button("Download CSV Completo Certificati"):
+    if st.button("Download CSV Backup"):
         df = pd.DataFrame(supabase.table("certificati").select("*").execute().data)
-        st.download_button("Scarica CSV", df.to_csv().encode(), "backup_full.csv", "text/csv")
+        st.download_button("Scarica", df.to_csv().encode(), "backup.csv", "text/csv")
