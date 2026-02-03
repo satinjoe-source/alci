@@ -21,15 +21,16 @@ supabase: Client = init_supabase()
 st.markdown("""
 <style>
     .stApp { background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%); }
-    .logo-container { text-align: center; margin: 20px 0 20px 0; }
-    .logo-title { color: #2563eb; font-size: 48px; font-weight: 900; letter-spacing: 4px; margin-bottom: 8px; }
-    .subtitle { color: #64748b; font-size: 18px; margin-bottom: 0; }
+    
+    /* Stili per le card dei risultati */
     .verify-card { background: white; padding: 40px; border-radius: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.12); max-width: 700px; margin: 30px auto; }
     .result-title { color: #16a34a; font-size: 28px; font-weight: 700; margin: 0 0 30px 0; text-align: center; }
     .info-item { margin: 20px 0; padding-bottom: 20px; border-bottom: 1px solid #e5e7eb; }
     .info-item:last-child { border-bottom: none; padding-bottom: 0; }
     .info-label { color: #6b7280; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
     .info-value { color: #1e293b; font-size: 18px; font-weight: 500; }
+    
+    /* Stili Messaggi Errore/Warning */
     .error-title { color: #dc2626; font-size: 28px; font-weight: 700; margin: 0 0 20px 0; text-align: center; }
     .error-text { color: #7f1d1d; line-height: 1.8; text-align: center; font-size: 16px; }
     .warning-title { color: #d97706; font-size: 28px; font-weight: 700; margin: 0 0 20px 0; text-align: center; }
@@ -38,28 +39,33 @@ st.markdown("""
     .alert-old-title { color: #dc2626; margin: 0 0 8px 0; font-weight: 700; font-size: 16px; }
     .alert-old-text { color: #7f1d1d; margin: 0; font-size: 14px; }
     
-    /* Centra immagine se usata nelle colonne */
-    div[data-testid="stImage"] {
+    /* Allineamento verticale colonne */
+    [data-testid="column"] {
         display: flex;
-        justify-content: center;
+        align-items: center;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- LOGO CENTRATO ---
-c1, c2, c3 = st.columns([1, 1, 1])
-with c2:
+# --- INTESTAZIONE LOGO + TITOLO (AFFIANCATI) ---
+# Usiamo le colonne: piccola per logo (0.8), grande per testo (3.2)
+c_logo, c_text = st.columns([0.8, 3.2])
+
+with c_logo:
     try:
-        st.image("logo alci.jpg", width=180)
+        # Logo piccolo (90px)
+        st.image("logo alci.jpg", width=90)
     except: pass
 
-st.markdown("""
-<div class='logo-container'>
-    <div class='logo-title'>🔍 A.L.C.I.</div>
-    <div class='subtitle'>Verifica Certificato Lavaggio Cisterna</div>
-</div>
-""", unsafe_allow_html=True)
+with c_text:
+    st.markdown("""
+        <div style='margin-left: 10px;'>
+            <div style='color: #2563eb; font-size: 42px; font-weight: 900; letter-spacing: 3px; line-height: 1.2;'>🔍 A.L.C.I.</div>
+            <div style='color: #64748b; font-size: 16px; font-weight: 500;'>Verifica Certificato Lavaggio Cisterna</div>
+        </div>
+    """, unsafe_allow_html=True)
 
+# --- LOGICA DI VERIFICA ---
 query_params = st.query_params
 code_param = query_params.get("c", "")
 
@@ -122,7 +128,7 @@ if code_param:
 
                 data_att_str = data_att.strftime("%d/%m/%Y alle ore %H:%M")
                 
-                # Calcolo giorni (rimuovendo tz info per confronto semplice)
+                # Calcolo giorni
                 try:
                     now_naive = datetime.now().replace(tzinfo=None)
                     data_att_naive = data_att.replace(tzinfo=None)
