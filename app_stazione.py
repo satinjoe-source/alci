@@ -2,17 +2,26 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 from datetime import datetime
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageOps
 import time
 from streamlit_js_eval import get_geolocation
 from geopy.distance import geodesic
+import numpy as np
 
-# Tentativo di importazione pyzbar
+# --- IMPORTAZIONE MOTORI DI LETTURA ---
+# 1. Pyzbar (Principale)
 try:
     from pyzbar import pyzbar
     PYZBAR_AVAILABLE = True
 except ImportError:
     PYZBAR_AVAILABLE = False
+
+# 2. OpenCV (Riserva/Potenziato)
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
 
 st.set_page_config(page_title="A.L.C.I. Stazione", page_icon="🏭", layout="centered")
 
@@ -106,8 +115,8 @@ except:
     st.rerun()
 
 # --- GPS CHECK ---
-loc = get_geolocation() # Richiede posizione al browser
-gps_status = "WAITING" # WAITING, OK, ERROR
+loc = get_geolocation() 
+gps_status = "WAITING" 
 distanza_mt = 0
 
 if loc:
@@ -115,10 +124,9 @@ if loc:
         user_coords = (loc['coords']['latitude'], loc['coords']['longitude'])
         station_coords = (staz['gps_lat'], staz['gps_lon'])
         
-        # Se la stazione non ha coordinate, saltiamo il controllo
         if station_coords[0] and station_coords[1]:
             distanza_mt = geodesic(user_coords, station_coords).meters
-            limit = staz.get('raggio_attivazione', 200) # Default 200 metri
+            limit = staz.get('raggio_attivazione', 200) 
             
             if distanza_mt <= limit:
                 gps_status = "OK"
@@ -177,24 +185,28 @@ st.markdown(f"""
 
 tab1, tab2 = st.tabs(["📸 Scansiona QR", "🔢 Manuale"])
 
+# --- FUNZIONI DI SUPPORTO ---
 def verifica_e_mostra_cert(code):
-    resp = supabase.table("certificati").select("*").eq("code", code).execute()
-    if not resp.data:
-        st.error("❌ Certificato non trovato nel database")
+    try:
+        resp = supabase.table("certificati").select("*").eq("code", code).execute()
+        if not resp.data:
+            st.error(f"❌ Certificato {code} non trovato")
+            return None
+        cert = resp.data[0]
+        if cert["stazione_id"] != staz["stazione_id"]:
+            st.error(f"❌ Certificato assegnato ad altra stazione ({cert['stazione_id']})")
+            return None
+        if cert["stato"] == "ATTIVO":
+            st.warning(f"⚠️ Già attivato! Targa: {cert['targa']}")
+            return None
+        return cert
+    except Exception as e:
+        st.error(f"Errore ricerca: {e}")
         return None
-    cert = resp.data[0]
-    if cert["stazione_id"] != staz["stazione_id"]:
-        st.error(f"❌ Certificato assegnato ad altra stazione ({cert['stazione_id']})")
-        return None
-    if cert["stato"] == "ATTIVO":
-        st.warning(f"⚠️ Già attivato! Targa: {cert['targa']}")
-        return None
-    return cert
 
 def attiva_certificato(code, targa, note):
-    # BLOCCO SE GPS ERROR
     if gps_status == "ERROR":
-        st.error("⛔ Attivazione bloccata: Sei troppo lontano dalla stazione.")
+        st.error("⛔ Attivazione bloccata: Sei troppo lontano.")
         try:
             supabase.table("anomalie").insert({
                 "stazione_id": staz['stazione_id'],
@@ -204,12 +216,6 @@ def attiva_certificato(code, targa, note):
             }).execute()
         except: pass
         return False
-    
-    # Se GPS non ancora rilevato, avvisa ma (in questo codice) non blocca del tutto
-    # Se vuoi bloccare rigorosamente se GPS è nullo, decommenta le righe sotto:
-    # if loc is None and staz.get('gps_lat') is not None:
-    #      st.error("⚠️ GPS non ancora rilevato. Attendi qualche secondo.")
-    #      return False
 
     try:
         supabase.table("certificati").update({
@@ -223,45 +229,90 @@ def attiva_certificato(code, targa, note):
         st.error(f"Errore DB: {e}")
         return False
 
+# --- MOTORE DI DECODIFICA AVANZATO ---
+def decodifica_robusta(image_file):
+    """
+    Tenta di leggere il QR code applicando diverse trasformazioni
+    """
+    try:
+        # Carica immagine
+        img_original = Image.open(image_file)
+        
+        # 1. RIDIMENSIONAMENTO (Se enorme, riduci per pyzbar)
+        if img_original.width > 2000:
+            img_original = img_original.resize((int(img_original.width/2), int(img_original.height/2)))
+        
+        # LISTA DI IMMAGINI DA PROVARE
+        attempts = [
+            ("Originale", img_original),
+            ("Scala di Grigi", img_original.convert('L')),
+            ("Contrasto Alto", ImageEnhance.Contrast(img_original.convert('L')).enhance(2.0)),
+            ("Bianco/Nero", img_original.convert('L').point(lambda p: 255 if p > 128 else 0))
+        ]
+
+        # TENTATIVO 1: PYZBAR (Loop sui filtri)
+        if PYZBAR_AVAILABLE:
+            for name, img_variant in attempts:
+                decoded = pyzbar.decode(img_variant)
+                if decoded:
+                    data = decoded[0].data.decode('utf-8')
+                    # st.success(f"Letto con filtro: {name}") # Debug
+                    return data
+
+        # TENTATIVO 2: OPENCV (Fallback potente)
+        if CV2_AVAILABLE:
+            # Converti in formato OpenCV (numpy array)
+            open_cv_image = np.array(img_original.convert('RGB')) 
+            # Converti RGB a BGR 
+            open_cv_image = open_cv_image[:, :, ::-1].copy()
+            
+            detector = cv2.QRCodeDetector()
+            data, bbox, _ = detector.detectAndDecode(open_cv_image)
+            if data:
+                # st.success("Letto con OpenCV (AI)") # Debug
+                return data
+                
+    except Exception as e:
+        st.error(f"Errore tecnico analisi immagine: {e}")
+        
+    return None
+
 # --- LOGICA ATTIVAZIONE (TAB 1) ---
 with tab1:
-    if not PYZBAR_AVAILABLE:
-        st.error("Libreria pyzbar non disponibile.")
+    if not PYZBAR_AVAILABLE and not CV2_AVAILABLE:
+        st.error("❌ Nessuna libreria di lettura QR installata (manca libzbar0 o opencv).")
     else:
-        uploaded_file = st.file_uploader("Carica foto QR", type=["jpg","png"], key="qr_up")
+        uploaded_file = st.file_uploader("Carica foto QR", type=["jpg","png","jpeg"], key="qr_up")
         
         if uploaded_file:
-            # 1. Mostra immagine
-            img = Image.open(uploaded_file)
-            st.image(img, width=200, caption="Foto Caricata")
+            st.image(uploaded_file, width=200, caption="Analisi in corso...")
             
-            # 2. Decodifica
-            decoded = pyzbar.decode(img)
+            # CHIAMATA AL DECODER ROBUSTO
+            qr_data = decodifica_robusta(uploaded_file)
             
-            # 2b. Tentativo extra con contrasto/BN se fallisce
-            if not decoded:
-                gray = img.convert('L')
-                decoded = pyzbar.decode(gray)
-
-            if decoded:
-                qr_d = decoded[0].data.decode('utf-8')
-                if "?c=" in qr_d:
-                    code = qr_d.split("?c=")[1].split("&")[0]
+            if qr_data:
+                # Parsing del link (es. https://.../?c=CODICE)
+                if "?c=" in qr_data:
+                    code = qr_data.split("?c=")[1].split("&")[0]
                     cert = verifica_e_mostra_cert(code)
+                    
                     if cert:
-                        st.success(f"✅ Rilevato: {cert['code']}")
-                        with st.form(f"f_{cert['code']}"):
-                            t = st.text_input("Targa Veicolo")
+                        st.markdown(f"<div class='success-alert'><h3>✅ Rilevato: {cert['code']}</h3></div>", unsafe_allow_html=True)
+                        
+                        # FORM ATTIVAZIONE
+                        with st.form(f"form_attivazione_{cert['code']}"):
+                            t = st.text_input("🚛 Targa Veicolo")
                             n = st.text_input("Note (Opzionale)")
+                            
                             if st.form_submit_button("🔓 ATTIVA ORA", type="primary"):
                                 if attiva_certificato(cert['code'], t, n):
                                     st.success("✅ Attivazione riuscita!")
-                                    time.sleep(1)
+                                    time.sleep(1.5)
                                     st.rerun()
                 else:
-                    st.error("QR Code non valido (Formato errato)")
+                    st.error(f"⚠️ QR Code rilevato ma non valido: {qr_data}")
             else:
-                st.error("❌ Nessun QR Code rilevato nella foto. Prova a scattare da più vicino o con più luce.")
+                st.error("❌ Nessun QR Code trovato. Prova ad avvicinarti o aumentare la luminosità.")
 
 # --- LOGICA MANUALE (TAB 2) ---
 with tab2:
@@ -279,7 +330,7 @@ with tab2:
                 if attiva_certificato(c['code'], t, n):
                     st.success("✅ Attivazione riuscita!")
                     st.session_state.man_cert = None
-                    time.sleep(1)
+                    time.sleep(1.5)
                     st.rerun()
 
 st.markdown("</div>", unsafe_allow_html=True)
