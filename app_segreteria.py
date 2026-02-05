@@ -30,20 +30,26 @@ if not supabase:
 
 # --- GEOLOCATOR (OpenStreetMap) ---
 def get_coordinates(address):
+    # Se l'indirizzo è vuoto, esci subito
     if not address:
         return None, None
+    
     try:
-        # Aggiungiamo un user_agent molto specifico e casuale per evitare blocchi
-        # E un timeout lungo (10 secondi) per connessioni lente
-        geolocator = Nominatim(user_agent="alci_segreteria_app_v3_fix", timeout=10)
+        # Timeout brevissimo (3s) per non bloccare l'app se il servizio non risponde
+        geolocator = Nominatim(user_agent="alci_admin_panel_secure", timeout=3)
         location = geolocator.geocode(address)
         
         if location:
             return location.latitude, location.longitude
         else:
-            # Se arrivi qui, OpenStreetMap non ha trovato l'indirizzo
-            st.toast(f"Indirizzo '{address}' non trovato sulle mappe.", icon="⚠️")
+            st.toast("Indirizzo non trovato in automatico. Inserisci le coordinate manualmente.", icon="⚠️")
             return None, None
+            
+    except Exception as e:
+        # Invece di mostrare l'errore tecnico rosso, avvisiamo gentilmente
+        st.toast("Servizio mappe momentaneamente non disponibile. Usa Google Maps per le coordinate.", icon="ℹ️")
+        print(f"Errore Geopy: {e}") # Log interno
+        return None, None
             
     except Exception as e:
         # Se arrivi qui, c'è un errore di connessione o blocco IP
