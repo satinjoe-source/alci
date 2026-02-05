@@ -31,12 +31,14 @@ if not supabase:
 # --- GEOLOCATOR (OpenStreetMap) ---
 def get_coordinates(address):
     try:
-        geolocator = Nominatim(user_agent="alci_segreteria_app")
+        # Aggiungiamo un timeout di 10 secondi e un user_agent casuale univoco
+        geolocator = Nominatim(user_agent="alci_app_v2_filippo", timeout=10)
         location = geolocator.geocode(address)
         if location:
             return location.latitude, location.longitude
         return None, None
-    except:
+    except Exception as e:
+        print(f"Errore Geopy: {e}") # Stampa l'errore nei log (visibile su Streamlit Cloud)
         return None, None
 
 # --- FUNZIONI UTILI ---
