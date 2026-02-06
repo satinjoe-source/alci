@@ -48,12 +48,6 @@ def get_coordinates(address):
     except Exception as e:
         # Invece di mostrare l'errore tecnico rosso, avvisiamo gentilmente
         st.toast("Servizio mappe momentaneamente non disponibile. Usa Google Maps per le coordinate.", icon="ℹ️")
-        print(f"Errore Geopy: {e}") # Log interno
-        return None, None
-            
-    except Exception as e:
-        # Se arrivi qui, c'è un errore di connessione o blocco IP
-        st.error(f"Errore connessione mappe: {e}")
         return None, None
 
 # --- FUNZIONI UTILI ---
@@ -122,7 +116,7 @@ with st.sidebar:
         "🏭 Gestione Stazioni",
         "🔍 QR Code",
         "🚨 Alert Sospetti",
-        "🔧 Diagnostica DB",
+        "🔧 Gestione Certificati",
         "⚙️ Impostazioni"
     ])
 
@@ -225,7 +219,7 @@ elif page == "🏭 Gestione Stazioni":
                     st.session_state.new_lat = lat
                     st.session_state.new_lon = lon
                     st.success("Trovato!")
-                else: st.error("Non trovato.")
+                else: st.error("Non trovato. Inserisci manualmente.")
 
             c1, c2, c3 = st.columns(3)
             lat_val = c1.number_input("Latitudine", value=st.session_state.new_lat, format="%.6f", key="input_new_lat")
@@ -337,13 +331,13 @@ elif page == "📦 Gestione Lotti":
 # --- QR CODE ---
 elif page == "🔍 QR Code":
     st.markdown("<div class='main-header'><h1>🔍 Visualizzazione QR</h1></div>", unsafe_allow_html=True)
-    code = st.text_input("Cerca Codice")
-    if st.button("Cerca"):
+    code = st.text_input("Cerca Codice per Visualizzare")
+    if st.button("Mostra QR"):
         res = supabase.table("certificati").select("*").eq("code", code.strip().upper()).execute()
         if res.data:
             c = res.data[0]
             st.image(f"data:image/png;base64,{make_qr_image(c['code'])}", width=200)
-            st.write(f"Stato: {c['stato']}")
+            st.write(f"Stato attuale: **{c['stato']}**")
         else: st.error("Non trovato")
 
 # --- ALERT SOSPETTI ---
@@ -373,17 +367,74 @@ elif page == "🚨 Alert Sospetti":
         else: st.info("Nessuna anomalia GPS.")
     except: st.warning("Tabella anomalie non trovata.")
 
-# --- DIAGNOSTICA ---
-elif page == "🔧 Diagnostica DB":
-    st.title("Diagnostica")
-    code = st.text_input("Codice da resettare")
-    if st.button("Reset a GENERATO"):
-        supabase.table("certificati").update({"stato": "GENERATO", "data_uso": None, "targa": None}).eq("code", code).execute()
-        st.success("Fatto")
+# --- GESTIONE CERTIFICATI (CORREZIONE ERRORI) ---
+elif page == "🔧 Gestione Certificati":
+    st.markdown("<div class='main-header'><h1>🔧 Gestione Certificati</h1></div>", unsafe_allow_html=True)
+    st.info("Usa questa sezione per correggere errori: resettare codici attivati per sbaglio o annullare certificati rovinati.")
+    
+    code_input = st.text_input("Inserisci Codice Certificato (es. ALCI-0001000)")
+
+    if code_input:
+        res = supabase.table("certificati").select("*").eq("code", code_input.strip().upper()).execute()
+        if res.data:
+            c = res.data[0]
+            
+            # Box Dettagli
+            st.markdown(f"""
+                <div style='padding:20px; background:white; border-radius:10px; border: 1px solid #ddd; margin-bottom:20px'>
+                    <h3 style='margin-top:0'>{c['code']}</h3>
+                    <p style='font-size:16px'>
+                    <b>Stato Attuale:</b> {c['stato']}<br>
+                    <b>Stazione Assegnata:</b> {c['stazione_id']}<br>
+                    <b>Targa Veicolo:</b> {c.get('targa') or '-'}<br>
+                    <b>Data Utilizzo:</b> {c.get('data_uso') or '-'}<br>
+                    <b>Lotto:</b> {c.get('lotto') or '-'}</p>
+                </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("### Azioni Correttive")
+            col1, col2, col3 = st.columns(3)
+
+            # AZIONE 1: RESET
+            with col1:
+                if st.button("🔄 Reset a GENERATO", help="Svuota la targa e la data. Il codice torna utilizzabile."):
+                    try:
+                        supabase.table("certificati").update({
+                            "stato": "GENERATO", "data_uso": None, "targa": None, "note": None
+                        }).eq("code", c['code']).execute()
+                        st.success(f"Certificato {c['code']} ripristinato a GENERATO!")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e: st.error(f"Errore: {e}")
+
+            # AZIONE 2: ANNULLA
+            with col2:
+                if st.button("🚫 Imposta ANNULLATO", help="Usa se il certificato cartaceo è errato o rovinato."):
+                    try:
+                         supabase.table("certificati").update({
+                            "stato": "ANNULLATO", "note": "Annullato da Segreteria"
+                        }).eq("code", c['code']).execute()
+                         st.warning(f"Certificato {c['code']} ANNULLATO per sempre.")
+                         time.sleep(1)
+                         st.rerun()
+                    except Exception as e: st.error(f"Errore: {e}")
+
+            # AZIONE 3: ELIMINA
+            with col3:
+                 if st.button("🗑️ ELIMINA DAL DB", type="primary", help="Cancella definitivamente la riga dal database."):
+                    try:
+                        supabase.table("certificati").delete().eq("code", c['code']).execute()
+                        st.error(f"Certificato {c['code']} eliminato definitivamente.")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e: st.error(f"Errore: {e}")
+        else:
+            st.error("Codice non trovato")
 
 # --- IMPOSTAZIONI ---
 elif page == "⚙️ Impostazioni":
     st.title("Impostazioni")
-    if st.button("Download CSV Backup"):
+    if st.button("Download CSV Backup Completo"):
         df = pd.DataFrame(supabase.table("certificati").select("*").execute().data)
-        st.download_button("Scarica", df.to_csv().encode(), "backup.csv", "text/csv")
+        st.download_button("Scarica CSV", df.to_csv().encode(), "backup_full.csv", "text/csv")
+
