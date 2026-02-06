@@ -344,14 +344,14 @@ elif page == "🔍 QR Code":
 elif page == "🚨 Alert Sospetti":
     st.markdown("<div class='main-header'><h1>🚨 Alert e Anomalie</h1></div>", unsafe_allow_html=True)
     
-    st.subheader("⚠️ Certificati vecchi (> 7 gg)")
+    st.subheader("⚠️ Certificati vecchi (> 3 gg)")
     try:
         res = supabase.table("certificati").select("*").eq("stato", "ATTIVO").order("data_uso", desc=True).limit(1000).execute()
         df = pd.DataFrame(res.data)
         if not df.empty:
             df['data_uso'] = pd.to_datetime(df['data_uso'])
             now = pd.Timestamp.now(tz=df['data_uso'].dt.tz) if df['data_uso'].dt.tz else pd.Timestamp.now()
-            old = df[df['data_uso'] < now - timedelta(days=7)]
+            old = df[df['data_uso'] < now - timedelta(days=3)]
             if not old.empty:
                 st.dataframe(old[["code", "stazione_id", "data_uso", "targa"]], use_container_width=True)
             else: st.success("Nessun certificato vecchio.")
